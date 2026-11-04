@@ -1,0 +1,784 @@
+(function () {
+  'use strict';
+
+  const C = window.Catan;
+  const { RESOURCES, RES_ICON, RES_NAME, COSTS, PIPS, DEV_INFO } = C;
+  const S = 60; // pixels per hex radius
+  const TILE_COLORS = {
+    wood: '#3d8a45', brick: '#c2623a', sheep: '#9dcb5b', wheat: '#e6c24a', ore: '#8f949d', desert: '#d9c593',
+  };
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const $ = sel => document.querySelector(sel);
+
+  const state = { code: null, token: null, view: null, es: null, lanUrls: [] };
+  const ui = {
+    mode: null,        // 'road' | 'settlement' | 'city' while choosing a build spot
+    dialog: null,      // 'trade' | 'yearOfPlenty' | 'monopoly'
+    discardSel: null,
+    yopSel: null,
+    tradeGive: C.cleanHand({}),
+    tradeGet: C.cleanHand({}),
+    bankGive: null,
+    bankGet: null,
+    hideResults: false,
+  };
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+    del(k) { try { localStorage.removeItem(k); } catch { /* private mode */ } },
+  };
+
+  // ---------- DOM helpers ----------
+
+  function h(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else if (k === 'class') e.className = v;
+      else if (k === 'style') e.style.cssText = v;
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    kids.flat().forEach(c => {
+      if (c === null || c === undefined || c === false) return;
+      e.append(c.nodeType ? c : String(c));
+    });
+    return e;
+  }
+
+  function svg(tag, attrs, parent) {
+    const e = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function svgText(parent, x, y, text, cls) {
+    const t = svg('text', { x, y, class: cls }, parent);
+    t.textContent = text;
+    return t;
+  }
+
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => { s.hidden = s.id !== id; });
+  }
+
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+  }
+
+  function resList(hand) {
+    return RESOURCES.filter(r => hand[r]).map(r => `${hand[r]}${RES_ICON[r]}`).join(' ') || '—';
+  }
+
+  function costLabel(cost) {
+    return Object.entries(cost).map(([r, n]) => RES_ICON[r].repeat(n)).join('');
+  }
+
+  // ---------- networking ----------
+
+  async function api(path, body) {
+    const opts = body
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      : {};
+    const res = await fetch(path, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || 'Something went wrong.');
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function send(type, payload) {
+    return api(`/api/rooms/${state.code}/action`, { token: state.token, type, ...(payload || {}) })
+      .catch(e => toast(e.message));
+  }
+
+  function connect(code, token) {
+    state.code = code;
+    state.token = token;
+    store.set('catan:' + code, token);
+    history.replaceState(null, '', `?room=${code}`);
+    if (state.es) state.es.close();
+    const es = new EventSource(`/api/rooms/${code}/events?token=${encodeURIComponent(token)}`);
+    es.onopen = () => { $('#conn').hidden = true; };
+    es.onmessage = ev => {
+      state.view = JSON.parse(ev.data);
+      render();
+    };
+    es.onerror = () => {
+      $('#conn').hidden = false;
+      if (es.readyState !== EventSource.CLOSED) return; // browser will retry on its own
+      api(`/api/rooms/${code}?token=${token}`)
+        .then(() => setTimeout(() => connect(code, token), 1500))
+        .catch(e => {
+          if (e.status === 404) { leave(e.message); return; }
+          setTimeout(() => connect(code, token), 3000);
+        });
+    };
+    state.es = es;
+  }
+
+  function leave(message) {
+    if (state.es) state.es.close();
+    if (state.code) store.del('catan:' + state.code);
+    state.es = null;
+    state.code = state.token = state.view = null;
+    history.replaceState(null, '', location.pathname);
+    showScreen('home');
+    if (message) toast(message);
+  }
+
+  // ---------- home ----------
+
+  async function createGame() {
+    const name = $('#name').value.trim();
+    store.set('catan:name', name);
+    try {
+      const d = await api('/api/rooms', { name });
+      connect(d.code, d.token);
+    } catch (e) { toast(e.message); }
+  }
+
+  async function joinGame(ev) {
+    ev.preventDefault();
+    const code = $('#join-code').value.trim().toUpperCase();
+    if (!/^[A-Z]{4}$/.test(code)) return toast('Enter the 4-letter game code.');
+    const name = $('#name').value.trim();
+    store.set('catan:name', name);
+    const token = store.get('catan:' + code);
+    try {
+      if (token) {
+        const info = await api(`/api/rooms/${code}?token=${token}`);
+        if (info.you >= 0) return connect(code, token);
+      }
+      const d = await api(`/api/rooms/${code}/join`, { name });
+      connect(d.code, d.token);
+    } catch (e) { toast(e.message); }
+  }
+
+  // ---------- render ----------
+
+  function render() {
+    const v = state.view;
+    if (!v) return;
+    if (!v.started) {
+      showScreen('lobby');
+      renderLobby(v);
+    } else {
+      showScreen('game');
+      renderGame(v);
+    }
+    renderChat(v);
+    const g = v.game;
+    const myTurn = g && g.you && (g.current === g.you.index || g.discards[g.you.index] !== undefined) && g.phase !== 'over';
+    document.title = myTurn ? '● Your move — Catan' : 'Catan';
+  }
+
+  function shareLink(code) {
+    const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname);
+    const base = local && state.lanUrls.length ? state.lanUrls[0] : location.origin;
+    return `${base}/?room=${code}`;
+  }
+
+  function renderLobby(v) {
+    $('#room-code').textContent = v.code;
+    const link = shareLink(v.code);
+    const input = $('#share-link');
+    if (input.value !== link) input.value = link;
+    $('#share-hint').textContent = link.includes('192.168.') || link.includes('10.') || link.includes('172.')
+      ? 'This link works for friends on the same Wi-Fi. For friends elsewhere, see the README.'
+      : 'Send this link to your friends.';
+
+    $('#members').replaceChildren(...v.members.map((m, i) => h('li', { style: `--pc:${m.color}` },
+      h('span', { class: 'swatch' }),
+      h('span', { class: 'member-name' }, m.name),
+      i === v.you && h('span', { class: 'tag' }, 'you'),
+      i === 0 && h('span', { class: 'tag' }, 'host'),
+      h('span', { class: m.connected ? 'dot on' : 'dot', title: m.connected ? 'online' : 'offline' }),
+    )));
+
+    const actions = $('#lobby-actions');
+    const n = v.members.length;
+    if (v.you === 0) {
+      actions.replaceChildren(
+        h('button', { class: 'primary big', disabled: n < C.MIN_PLAYERS, onclick: () => send('start') },
+          n < C.MIN_PLAYERS ? 'Waiting for players…' : `Start game (${n} players)`),
+      );
+    } else {
+      actions.replaceChildren(h('p', { class: 'hint' }, 'Waiting for the host to start the game…'));
+    }
+  }
+
+  function renderChat(v) {
+    document.querySelectorAll('.chat-list').forEach(list => {
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 30;
+      list.replaceChildren(...v.chat.map(m => h('div', { class: 'chat-line' },
+        h('b', { style: `color:${chatColor(v, m.pi)}` }, m.name + ': '), m.text)));
+      if (atBottom) list.scrollTop = list.scrollHeight;
+    });
+  }
+
+  function chatColor(v, pi) {
+    const c = v.members[pi] && v.members[pi].color;
+    return c === '#f2f2f2' ? '#d8dde6' : c;
+  }
+
+  function renderGame(v) {
+    const g = v.game;
+    const me = g.you;
+    const building = g.phase === 'main' || g.phase === 'specialBuild';
+    if (!building || !me || g.current !== me.index) ui.mode = null;
+    if (g.phase !== 'main' || !me || g.current !== me.index) {
+      if (ui.dialog === 'trade' || ui.dialog === 'yearOfPlenty' || ui.dialog === 'monopoly') ui.dialog = null;
+    }
+    if (g.phase !== 'over') ui.hideResults = false;
+    renderBoard(g, me);
+    renderDice(g);
+    renderPlayers(v, g, me);
+    renderTurn(g, me);
+    renderTradePanel(g, me);
+    renderHand(g, me);
+    renderLog(g);
+    renderModal(v, g, me);
+  }
+
+  // ---------- board ----------
+
+  function hexPoints(cx, cy, r, offsetDeg) {
+    return Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI / 180) * (offsetDeg + 60 * i);
+      return `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`;
+    }).join(' ');
+  }
+
+  function renderBoard(g, me) {
+    const root = $('#board');
+    root.replaceChildren();
+    const xs = g.tiles.map(t => t.x), ys = g.tiles.map(t => t.y);
+    const pad = 2.15;
+    const minX = (Math.min(...xs) - pad) * S, minY = (Math.min(...ys) - pad) * S;
+    root.setAttribute('viewBox', `${minX} ${minY} ${(Math.max(...xs) + pad) * S - minX} ${(Math.max(...ys) + pad) * S - minY}`);
+    const sea = svg('g', { class: 'sea' }, root);
+    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 1.95 * S, 30) }, sea));
+
+    // ports
+    g.ports.forEach(pt => {
+      const E = g.edges[pt.edge];
+      const a = g.vertices[E.v[0]], b = g.vertices[E.v[1]];
+      const T = g.tiles[E.tiles[0]];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const len = Math.hypot(mx - T.x, my - T.y);
+      const px = (mx + ((mx - T.x) / len) * 0.62) * S, py = (my + ((my - T.y) / len) * 0.62) * S;
+      [a, b].forEach(V => svg('line', { x1: V.x * S, y1: V.y * S, x2: px, y2: py, class: 'dock' }, root));
+      const grp = svg('g', { class: 'port' }, root);
+      svg('title', {}, grp).textContent = pt.type === 'any' ? 'Port: trade 3 of any one resource for 1' : `Port: trade 2 ${RES_NAME[pt.type]} for 1`;
+      svg('circle', { cx: px, cy: py, r: 19 }, grp);
+      if (pt.type === 'any') {
+        svgText(grp, px, py + 4, '3:1', 'port-ratio');
+      } else {
+        svgText(grp, px, py - 2, RES_ICON[pt.type], 'port-icon');
+        svgText(grp, px, py + 13, '2:1', 'port-ratio small');
+      }
+    });
+
+    // tiles
+    const sum = g.dice ? g.dice[0] + g.dice[1] : null;
+    g.tiles.forEach((T, ti) => {
+      const cx = T.x * S, cy = T.y * S;
+      const hit = sum && sum !== 7 && g.phase !== 'roll' && T.number === sum && ti !== g.robber;
+      const grp = svg('g', { class: 'tile' + (hit ? ' hit' : '') }, root);
+      const pts = T.verts.map(v => `${g.vertices[v].x * S},${g.vertices[v].y * S}`).join(' ');
+      svg('polygon', { points: pts, fill: TILE_COLORS[T.resource], class: 'hex' }, grp);
+      svgText(grp, cx, cy - 22, RES_ICON[T.resource], 'tile-icon');
+      if (T.number) {
+        const red = T.number === 6 || T.number === 8;
+        svg('circle', { cx, cy: cy + 14, r: 17, class: 'token' }, grp);
+        svgText(grp, cx, cy + 19, T.number, 'token-num' + (red ? ' red' : ''));
+        const pips = PIPS[T.number];
+        for (let i = 0; i < pips; i++) {
+          svg('circle', { cx: cx + (i - (pips - 1) / 2) * 4.5, cy: cy + 25, r: 1.5, class: 'pip' + (red ? ' red' : '') }, grp);
+        }
+      }
+    });
+
+    // robber
+    const RT = g.tiles[g.robber];
+    const rx = RT.x * S + (RT.number ? 30 : 0), ry = RT.y * S + 10;
+    const robber = svg('g', { class: 'robber' }, root);
+    svg('ellipse', { cx: rx, cy: ry + 6, rx: 9, ry: 12 }, robber);
+    svg('circle', { cx: rx, cy: ry - 9, r: 6.5 }, robber);
+
+    // roads
+    g.edges.forEach(E => {
+      if (E.road === null) return;
+      const [a, b] = E.v.map(v => g.vertices[v]);
+      const color = g.players[E.road].color;
+      const [x1, y1, x2, y2] = shrink(a, b, 0.17);
+      svg('line', { x1, y1, x2, y2, class: 'road-outline' }, root);
+      svg('line', { x1, y1, x2, y2, class: 'road', stroke: color }, root);
+    });
+
+    // buildings
+    g.vertices.forEach(V => {
+      if (!V.building) return;
+      const color = g.players[V.building.owner].color;
+      const shape = V.building.type === 'city'
+        ? '-13,10 13,10 13,-3 3,-3 3,-9 -5,-16 -13,-9'
+        : '-9,8 9,8 9,-3 0,-11 -9,-3';
+      svg('polygon', { points: shape, transform: `translate(${V.x * S},${V.y * S})`, class: 'building', fill: color }, root);
+    });
+
+    // click targets for the local player
+    const myTurn = me && g.current === me.index;
+    if (!myTurn) return;
+    let verts = [], vertAction = null, edges = [], tiles = [];
+    if (g.phase === 'setup') {
+      if (g.setupStep === 'settlement') { verts = me.legal.settlements; vertAction = 'placeSettlement'; }
+      else edges = me.legal.roads;
+    } else if (g.phase === 'roadBuilding') {
+      edges = me.legal.roads;
+    } else if (g.phase === 'robber') {
+      tiles = me.legal.robberTiles;
+    } else if (g.phase === 'main' || g.phase === 'specialBuild') {
+      if (ui.mode === 'road') edges = me.legal.roads;
+      if (ui.mode === 'settlement') { verts = me.legal.settlements; vertAction = 'placeSettlement'; }
+      if (ui.mode === 'city') { verts = me.legal.cities; vertAction = 'placeCity'; }
+    }
+
+    tiles.forEach(ti => {
+      const T = g.tiles[ti];
+      const pts = T.verts.map(v => `${g.vertices[v].x * S},${g.vertices[v].y * S}`).join(' ');
+      const p = svg('polygon', { points: pts, class: 'tile-target' }, root);
+      p.addEventListener('click', () => send('moveRobber', { tile: ti }));
+    });
+    edges.forEach(ei => {
+      const E = g.edges[ei];
+      const [x1, y1, x2, y2] = shrink(g.vertices[E.v[0]], g.vertices[E.v[1]], 0.2);
+      const l = svg('line', { x1, y1, x2, y2, class: 'edge-target' }, root);
+      l.addEventListener('click', () => { ui.mode = null; send('placeRoad', { edge: ei }); });
+    });
+    verts.forEach(vi => {
+      const V = g.vertices[vi];
+      const c = svg('circle', { cx: V.x * S, cy: V.y * S, r: 10, class: 'vertex-target' }, root);
+      c.addEventListener('click', () => { ui.mode = null; send(vertAction, { vertex: vi }); });
+    });
+  }
+
+  function shrink(a, b, f) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return [(a.x + dx * f) * S, (a.y + dy * f) * S, (b.x - dx * f) * S, (b.y - dy * f) * S];
+  }
+
+  function renderDice(g) {
+    const el = $('#dice');
+    if (!g.dice) { el.replaceChildren(); return; }
+    const faces = '⚀⚁⚂⚃⚄⚅';
+    el.replaceChildren(
+      h('span', { class: 'die' }, faces[g.dice[0] - 1]),
+      h('span', { class: 'die' }, faces[g.dice[1] - 1]),
+      h('span', { class: 'dice-sum' + (g.dice[0] + g.dice[1] === 7 ? ' seven' : '') }, g.dice[0] + g.dice[1]),
+    );
+  }
+
+  // ---------- sidebar ----------
+
+  function renderPlayers(v, g, me) {
+    $('#players').replaceChildren(...g.players.map((p, i) => {
+      const isMe = me && me.index === i;
+      const vp = isMe ? me.vp : p.vp;
+      return h('div', { class: 'player' + (i === g.current ? ' current' : ''), style: `--pc:${p.color}` },
+        h('div', { class: 'player-top' },
+          h('span', { class: 'swatch' }),
+          h('span', { class: 'pname' }, p.name),
+          isMe && h('span', { class: 'tag' }, 'you'),
+          !v.members[i].connected && h('span', { class: 'tag warn' }, 'offline'),
+          g.discards[i] !== undefined && h('span', { class: 'tag warn' }, `discarding ${g.discards[i]}`),
+          h('span', { class: 'vp', title: isMe ? 'Includes your hidden VP cards' : 'Visible points' }, `${vp} VP`),
+        ),
+        h('div', { class: 'player-stats' },
+          h('span', { title: 'Resource cards' }, `🃏 ${p.cards}`),
+          h('span', { title: 'Development cards' }, `📜 ${p.devCards}`),
+          h('span', { title: 'Knights played' }, `⚔️ ${p.knights}`),
+          h('span', { title: 'Longest road' }, `🛣️ ${p.roadLength}`),
+          g.longestRoadHolder === i && h('span', { class: 'badge' }, 'Longest Road'),
+          g.largestArmyHolder === i && h('span', { class: 'badge' }, 'Largest Army'),
+        ),
+      );
+    }));
+  }
+
+  function statusText(g, me) {
+    const cur = g.players[g.current];
+    const mine = me && me.index === g.current;
+    const who = mine ? 'You' : cur.name;
+    switch (g.phase) {
+      case 'setup': return g.setupStep === 'settlement'
+        ? `${who}: place a settlement${mine ? ' on a glowing corner' : ''}.`
+        : `${who}: place a road next to it.`;
+      case 'roll': return mine ? 'Your turn — roll the dice.' : `${cur.name} is rolling…`;
+      case 'discard': {
+        const names = Object.keys(g.discards).map(i => g.players[i].name);
+        return `Robber! Waiting for ${names.join(', ')} to discard.`;
+      }
+      case 'robber': return mine ? 'Click a tile to move the robber.' : `${cur.name} is moving the robber…`;
+      case 'steal': return mine ? 'Choose who to steal from.' : `${cur.name} is choosing who to rob…`;
+      case 'roadBuilding': return mine ? `Place ${g.freeRoads} free road${g.freeRoads > 1 ? 's' : ''}.` : `${cur.name} is building roads…`;
+      case 'specialBuild': {
+        const after = g.players[g.specialBuildFor].name;
+        if (!mine) return `Special building: ${cur.name} may build before the next turn.`;
+        if (ui.mode) return `Click a glowing spot to build a ${ui.mode}. (Esc to cancel)`;
+        return `Special building after ${after}'s turn — build or buy now, or pass. (No trading.)`;
+      }
+      case 'main':
+        if (!mine) return `${cur.name}'s turn.`;
+        if (ui.mode) return `Click a glowing spot to build a ${ui.mode}. (Esc to cancel)`;
+        return 'Build, trade, or end your turn.';
+      case 'over': return `${g.players[g.winner].name} won the game!`;
+      default: return '';
+    }
+  }
+
+  function renderTurn(g, me) {
+    const panel = $('#turn');
+    const mine = me && me.index === g.current;
+    const kids = [h('div', { class: 'status' }, statusText(g, me))];
+
+    if (mine && g.phase === 'roll') {
+      kids.push(h('div', { class: 'actions' },
+        h('button', { class: 'primary big', onclick: () => send('rollDice') }, '🎲 Roll dice')));
+    }
+
+    if (mine && (g.phase === 'main' || g.phase === 'specialBuild')) {
+      const afford = cost => C.canAfford({ res: me.res }, cost);
+      const buildBtn = (mode, label, cost, legal) => h('button', {
+        class: ui.mode === mode ? 'active' : '',
+        disabled: !afford(cost) || !legal.length,
+        title: !afford(cost) ? 'Not enough resources' : !legal.length ? 'Nowhere to build' : '',
+        onclick: () => { ui.mode = ui.mode === mode ? null : mode; render(); },
+      }, h('span', {}, label), h('span', { class: 'cost' }, costLabel(cost)));
+      kids.push(h('div', { class: 'actions grid' },
+        buildBtn('road', 'Road', COSTS.road, me.legal.roads),
+        buildBtn('settlement', 'Settlement', COSTS.settlement, me.legal.settlements),
+        buildBtn('city', 'City', COSTS.city, me.legal.cities),
+        h('button', {
+          disabled: !afford(COSTS.dev) || !g.devDeckCount,
+          title: !g.devDeckCount ? 'Deck is empty' : '',
+          onclick: () => send('buyDevCard'),
+        }, h('span', {}, `Dev card (${g.devDeckCount})`), h('span', { class: 'cost' }, costLabel(COSTS.dev))),
+      ));
+      kids.push(g.phase === 'specialBuild'
+        ? h('div', { class: 'actions' },
+          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'Done building ➜'))
+        : h('div', { class: 'actions' },
+          h('button', { onclick: () => openTrade() }, '🤝 Trade'),
+          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'End turn ➜')));
+    }
+
+    if (g.phase === 'over' && ui.hideResults) {
+      kids.push(h('div', { class: 'actions' },
+        h('button', { onclick: () => { ui.hideResults = false; render(); } }, 'Show results')));
+    }
+    panel.replaceChildren(...kids);
+  }
+
+  function renderTradePanel(g, me) {
+    const panel = $('#trade-panel');
+    const t = g.trade;
+    if (!t || !me) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const from = g.players[t.from];
+    if (t.from === me.index) {
+      const rows = g.players.map((p, i) => {
+        if (i === me.index) return null;
+        const r = t.responses[i];
+        return h('div', { class: 'trade-row' },
+          h('span', { style: `color:${p.color === '#f2f2f2' ? 'inherit' : p.color}` }, p.name),
+          r === 'accept'
+            ? h('button', { class: 'primary small', onclick: () => send('confirmTrade', { with: i }) }, `Trade with ${p.name}`)
+            : h('span', { class: 'muted' }, r === 'decline' ? 'declined' : 'thinking…'));
+      });
+      panel.replaceChildren(
+        h('div', { class: 'panel-title' }, 'Your offer'),
+        h('div', { class: 'offer' }, h('span', {}, `Give ${resList(t.give)}`), h('span', {}, `Get ${resList(t.get)}`)),
+        ...rows,
+        h('div', { class: 'actions' }, h('button', { class: 'small', onclick: () => send('cancelTrade') }, 'Withdraw offer')),
+      );
+    } else {
+      const canPay = RESOURCES.every(r => me.res[r] >= t.get[r]);
+      const mine = t.responses[me.index];
+      panel.replaceChildren(
+        h('div', { class: 'panel-title' }, `${from.name} wants to trade`),
+        h('div', { class: 'offer' }, h('span', {}, `You get ${resList(t.give)}`), h('span', {}, `You give ${resList(t.get)}`)),
+        h('div', { class: 'actions' },
+          h('button', {
+            class: 'primary small' + (mine === 'accept' ? ' active' : ''), disabled: !canPay,
+            title: canPay ? '' : 'You don’t have those cards',
+            onclick: () => send('respondTrade', { accept: true }),
+          }, mine === 'accept' ? 'Accepted ✓' : 'Accept'),
+          h('button', {
+            class: 'small' + (mine === 'decline' ? ' active' : ''),
+            onclick: () => send('respondTrade', { accept: false }),
+          }, mine === 'decline' ? 'Declined' : 'Decline'),
+        ),
+      );
+    }
+  }
+
+  function renderHand(g, me) {
+    const panel = $('#hand');
+    if (!me) {
+      panel.replaceChildren(h('div', { class: 'panel-title' }, 'Spectating'));
+      return;
+    }
+    const cards = RESOURCES.map(r => h('div', { class: `res-card res-${r}`, title: RES_NAME[r] },
+      h('span', { class: 'res-icon' }, RES_ICON[r]), h('span', { class: 'res-count' }, me.res[r])));
+
+    const groups = {};
+    me.dev.forEach(c => {
+      groups[c.type] = groups[c.type] || { total: 0, fresh: 0 };
+      groups[c.type].total++;
+      if (c.isNew) groups[c.type].fresh++;
+    });
+    const devs = Object.entries(groups).map(([type, info]) => {
+      const playable = me.legal.devs.includes(type);
+      return h('div', { class: 'dev-card', title: DEV_INFO[type].text },
+        h('span', { class: 'dev-name' }, `${DEV_INFO[type].name}${info.total > 1 ? ` ×${info.total}` : ''}`),
+        info.fresh > 0 && type !== 'victoryPoint' && h('span', { class: 'tag' }, info.fresh === info.total ? 'new' : `${info.fresh} new`),
+        playable && h('button', { class: 'small', onclick: () => playDev(type) }, 'Play'));
+    });
+
+    const p = g.players[me.index];
+    panel.replaceChildren(
+      h('div', { class: 'panel-title' }, 'Your hand'),
+      h('div', { class: 'res-cards' }, cards),
+      devs.length ? h('div', { class: 'dev-cards' }, devs) : null,
+      h('div', { class: 'pieces muted' }, `Pieces left: ${p.roadsLeft} roads · ${p.settlementsLeft} settlements · ${p.citiesLeft} cities`),
+    );
+  }
+
+  function playDev(type) {
+    if (type === 'yearOfPlenty') { ui.dialog = 'yearOfPlenty'; ui.yopSel = C.cleanHand({}); render(); return; }
+    if (type === 'monopoly') { ui.dialog = 'monopoly'; render(); return; }
+    send('playDev', { card: type });
+  }
+
+  function renderLog(g) {
+    const el = $('#log');
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    el.replaceChildren(...g.log.map(e => h('div', {
+      class: 'log-line', style: e.pi !== null ? `--pc:${g.players[e.pi].color}` : '',
+    }, e.text)));
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+
+  // ---------- modals ----------
+
+  function openTrade() {
+    ui.dialog = 'trade';
+    ui.tradeGive = C.cleanHand({});
+    ui.tradeGet = C.cleanHand({});
+    ui.bankGive = ui.bankGet = null;
+    render();
+  }
+
+  function closeDialog() { ui.dialog = null; render(); }
+
+  function stepper(hand, r, max, onChange) {
+    return h('div', { class: 'stepper' },
+      h('span', { class: 'res-icon', title: RES_NAME[r] }, RES_ICON[r]),
+      h('button', { class: 'small', disabled: hand[r] <= 0, onclick: () => { hand[r]--; onChange(); } }, '−'),
+      h('span', { class: 'count' }, hand[r]),
+      h('button', { class: 'small', disabled: hand[r] >= max, onclick: () => { hand[r]++; onChange(); } }, '+'));
+  }
+
+  function renderModal(v, g, me) {
+    const modal = $('#modal');
+    const card = modal.querySelector('.modal-card');
+    const rerender = () => renderModal(v, g, me);
+    let content = null;
+
+    const mine = me && me.index === g.current;
+    if (g.phase === 'over' && !ui.hideResults) {
+      content = resultsModal(v, g, me);
+    } else if (me && g.phase === 'discard' && g.discards[me.index] !== undefined) {
+      content = discardModal(g, me, rerender);
+    } else if (mine && g.phase === 'steal') {
+      content = [
+        h('h2', {}, 'Steal a card'),
+        h('p', {}, 'Pick a player to take a random card from.'),
+        h('div', { class: 'actions column' }, g.stealCandidates.map(i => h('button', {
+          onclick: () => send('steal', { victim: i }),
+        }, `${g.players[i].name} (${g.players[i].cards} cards)`))),
+      ];
+    } else if (ui.dialog === 'trade' && mine && g.phase === 'main') {
+      content = tradeModal(g, me, rerender);
+    } else if (ui.dialog === 'yearOfPlenty' && mine) {
+      const sel = ui.yopSel;
+      const n = C.countHand(sel);
+      content = [
+        h('h2', {}, 'Year of Plenty'),
+        h('p', {}, 'Take any 2 resources from the bank.'),
+        h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(sel, r, Math.min(g.bank[r], sel[r] + 2 - n), rerender))),
+        h('div', { class: 'actions' },
+          h('button', { onclick: closeDialog }, 'Cancel'),
+          h('button', {
+            class: 'primary', disabled: n !== 2,
+            onclick: () => {
+              const picks = RESOURCES.flatMap(r => Array(sel[r]).fill(r));
+              ui.dialog = null;
+              send('playDev', { card: 'yearOfPlenty', resources: picks });
+            },
+          }, 'Take them')),
+      ];
+    } else if (ui.dialog === 'monopoly' && mine) {
+      content = [
+        h('h2', {}, 'Monopoly'),
+        h('p', {}, 'Every other player gives you all of one resource.'),
+        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
+          onclick: () => { ui.dialog = null; send('playDev', { card: 'monopoly', resource: r }); },
+        }, `${RES_ICON[r]} ${RES_NAME[r]}`))),
+        h('div', { class: 'actions' }, h('button', { onclick: closeDialog }, 'Cancel')),
+      ];
+    }
+
+    if (g.phase !== 'discard') ui.discardSel = null;
+    if (!content) { modal.hidden = true; return; }
+    card.replaceChildren(...content);
+    modal.hidden = false;
+  }
+
+  function discardModal(g, me, rerender) {
+    const need = g.discards[me.index];
+    if (!ui.discardSel) ui.discardSel = C.cleanHand({});
+    const sel = ui.discardSel;
+    const n = C.countHand(sel);
+    return [
+      h('h2', {}, 'The robber strikes!'),
+      h('p', {}, `You have more than 7 cards. Discard ${need} (${n}/${need} selected).`),
+      h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(sel, r, n >= need ? sel[r] : me.res[r], rerender))),
+      h('div', { class: 'actions' },
+        h('button', { class: 'primary', disabled: n !== need, onclick: () => send('discard', { cards: sel }) }, 'Discard')),
+    ];
+  }
+
+  function tradeModal(g, me, rerender) {
+    const give = ui.tradeGive, get = ui.tradeGet;
+    const offerOk = C.countHand(give) > 0 && C.countHand(get) > 0 && RESOURCES.every(r => !(give[r] && get[r]));
+    const bankOk = ui.bankGive && ui.bankGet && ui.bankGive !== ui.bankGet
+      && me.res[ui.bankGive] >= me.rates[ui.bankGive] && g.bank[ui.bankGet] > 0;
+    return [
+      h('h2', {}, 'Trade'),
+      h('div', { class: 'trade-section' },
+        h('div', { class: 'panel-title' }, 'With the bank'),
+        h('div', { class: 'muted' }, 'Give'),
+        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
+          class: 'small' + (ui.bankGive === r ? ' active' : ''),
+          disabled: me.res[r] < me.rates[r],
+          onclick: () => { ui.bankGive = r; rerender(); },
+        }, `${me.rates[r]} ${RES_ICON[r]}`))),
+        h('div', { class: 'muted' }, 'Get'),
+        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
+          class: 'small' + (ui.bankGet === r ? ' active' : ''),
+          disabled: g.bank[r] < 1 || r === ui.bankGive,
+          onclick: () => { ui.bankGet = r; rerender(); },
+        }, `1 ${RES_ICON[r]}`))),
+        h('div', { class: 'actions' }, h('button', {
+          class: 'primary', disabled: !bankOk,
+          onclick: () => { send('tradeBank', { give: ui.bankGive, get: ui.bankGet }); ui.bankGive = ui.bankGet = null; },
+        }, 'Trade with bank')),
+      ),
+      h('div', { class: 'trade-section' },
+        h('div', { class: 'panel-title' }, 'With players'),
+        h('div', { class: 'trade-cols' },
+          h('div', {}, h('div', { class: 'muted' }, 'You give'),
+            h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(give, r, me.res[r], rerender)))),
+          h('div', {}, h('div', { class: 'muted' }, 'You want'),
+            h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(get, r, 9, rerender))))),
+        h('div', { class: 'actions' }, h('button', {
+          class: 'primary', disabled: !offerOk,
+          onclick: () => { send('proposeTrade', { give, get }); ui.dialog = null; render(); },
+        }, 'Send offer to everyone')),
+      ),
+      h('div', { class: 'actions' }, h('button', { onclick: closeDialog }, 'Close')),
+    ];
+  }
+
+  function resultsModal(v, g, me) {
+    const ranked = g.players.map((p, i) => ({ ...p, i })).sort((a, b) => b.vp - a.vp);
+    const winner = g.players[g.winner];
+    return [
+      h('h2', {}, me && me.index === g.winner ? '🏆 You win!' : `🏆 ${winner.name} wins!`),
+      h('ol', { class: 'results' }, ranked.map(p => h('li', { style: `--pc:${p.color}` },
+        h('span', { class: 'swatch' }), h('span', { class: 'pname' }, p.name), h('span', { class: 'vp' }, `${p.vp} VP`)))),
+      h('div', { class: 'actions' },
+        h('button', { onclick: () => { ui.hideResults = true; render(); } }, 'View board'),
+        v.you === 0
+          ? h('button', { class: 'primary', onclick: () => send('newGame') }, 'Play again')
+          : h('span', { class: 'muted' }, 'The host can start a new game.')),
+    ];
+  }
+
+  // ---------- boot ----------
+
+  function bindChat() {
+    document.querySelectorAll('.chat-form').forEach(form => {
+      form.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const input = form.querySelector('input');
+        const text = input.value.trim();
+        if (!text || !state.code) return;
+        input.value = '';
+        send('chat', { text });
+      });
+    });
+  }
+
+  async function init() {
+    $('#create').addEventListener('click', createGame);
+    $('#join-form').addEventListener('submit', joinGame);
+    $('#copy-link').addEventListener('click', () => {
+      const input = $('#share-link');
+      input.select();
+      const done = () => toast('Link copied!');
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(input.value).then(done, () => {});
+      else if (document.execCommand('copy')) done();
+    });
+    $('#modal').addEventListener('click', ev => {
+      if (ev.target.id === 'modal' && ui.dialog) closeDialog();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== 'Escape') return;
+      if (ui.dialog) closeDialog();
+      else if (ui.mode) { ui.mode = null; render(); }
+    });
+    bindChat();
+
+    $('#name').value = store.get('catan:name') || '';
+    api('/api/info').then(d => { state.lanUrls = d.lanUrls || []; render(); }).catch(() => {});
+
+    const code = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+    if (code) {
+      $('#join-code').value = code;
+      const token = store.get('catan:' + code);
+      if (token) {
+        try {
+          const info = await api(`/api/rooms/${code}?token=${token}`);
+          if (info.you >= 0) return connect(code, token);
+        } catch (e) { toast(e.message); }
+      }
+    }
+    showScreen('home');
+    $('#name').focus();
+  }
+
+  init();
+})();

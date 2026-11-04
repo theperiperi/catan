@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catan</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌾</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="home" class="screen" hidden>
+    <div class="card home-card">
+      <h1>Catan</h1>
+      <p class="sub">Play online with 2–6 friends, each on your own device.</p>
+      <label class="field">Your name
+        <input id="name" maxlength="20" placeholder="Your name" autocomplete="nickname">
+      </label>
+      <button id="create" class="primary big">Create a game</button>
+      <div class="divider"><span>or join one</span></div>
+      <form id="join-form" class="join-row">
+        <input id="join-code" maxlength="4" placeholder="CODE" autocapitalize="characters" spellcheck="false">
+        <button type="submit">Join</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="lobby" class="screen" hidden>
+    <div class="card lobby-card">
+      <div class="label">Game code</div>
+      <div id="room-code" class="room-code"></div>
+      <div class="share">
+        <input id="share-link" readonly>
+        <button id="copy-link">Copy link</button>
+      </div>
+      <p id="share-hint" class="hint"></p>
+      <ul id="members"></ul>
+      <div id="lobby-actions"></div>
+      <div class="chat">
+        <div class="chat-list"></div>
+        <form class="chat-form"><input maxlength="300" placeholder="Say something…"><button>Send</button></form>
+      </div>
+    </div>
+  </section>
+
+  <section id="game" class="screen" hidden>
+    <div id="board-wrap">
+      <svg id="board" viewBox="-335 -295 670 590" aria-label="Game board"></svg>
+      <div id="dice"></div>
+      <div id="conn" hidden>Reconnecting…</div>
+    </div>
+    <aside id="side">
+      <div id="players"></div>
+      <div id="turn" class="panel"></div>
+      <div id="trade-panel" class="panel" hidden></div>
+      <div id="hand" class="panel"></div>
+      <div class="panel log-panel"><div class="panel-title">Game log</div><div id="log"></div></div>
+      <div class="panel chat">
+        <div class="panel-title">Chat</div>
+        <div class="chat-list"></div>
+        <form class="chat-form"><input maxlength="300" placeholder="Negotiate a trade…"><button>Send</button></form>
+      </div>
+    </aside>
+  </section>
+
+  <div id="modal" hidden><div class="modal-card"></div></div>
+  <div id="toast" hidden></div>
+
+  <script src="/shared/engine.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

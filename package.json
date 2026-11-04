@@ -1,0 +1,12 @@
+{
+  "name": "catan",
+  "version": "1.0.0",
+  "description": "Online multiplayer Catan clone for 2-6 friends. No dependencies.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-timeout=30000 tests/*.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}
