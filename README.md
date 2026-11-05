@@ -3,7 +3,7 @@
 An online Catan clone for 2–6 friends, each playing on their own device. It needs only Node.js 18 or newer and has no dependencies.
 
 <img width="750" height="500" alt="Screenshot 2026-11-06 at 3 06 20 AM" src="https://github.com/user-attachments/assets/62551248-8223-487a-a26b-a5c3c2f84a83" />
-<img width="750" height="500" alt="Screenshot 2026-11-06 at 3 05 35 AM" src="https://github.com/user-attachments/assets/4ab7c901-88d4-4c3f-baa2-88c5b0105c9a" />
+<img width="750" height="500" alt="Screenshot 2026-11-06 at 3 08 07 AM" src="https://github.com/user-attachments/assets/38f017b3-ed3e-4e1d-970c-59bacf524016" />
 <img width="750" height="500" alt="Screenshot 2026-11-06 at 2 33 47 AM" src="https://github.com/user-attachments/assets/87a1f35a-775f-4bdb-903f-73f0b84fd159" />
 
 
