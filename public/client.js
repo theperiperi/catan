@@ -20,6 +20,7 @@
     tradeGet: C.cleanHand({}),
     bankGive: null,
     bankGet: null,
+    tradeTab: 'players',     // trade dialog: 'players' | 'bank'
     hideResults: false,
     seenNotices: new Set(), // notice keys already animated in
     flashes: [],            // short-lived notices: { key, title, text, until }
@@ -735,13 +736,30 @@
 
   function closeDialog() { ui.dialog = null; render(); }
 
-  function stepper(hand, r, max, onChange) {
-    return h('div', { class: 'stepper' },
-      chip(r),
-      h('span', { class: 'label' }, RES_NAME[r]),
-      h('button', { class: 'small', disabled: hand[r] <= 0, onclick: () => { hand[r]--; onChange(); } }, '−'),
-      h('span', { class: 'count' }, hand[r]),
-      h('button', { class: 'small', disabled: hand[r] >= max, onclick: () => { hand[r]++; onChange(); } }, '+'));
+  // A resource card to click. Used wherever the player picks cards.
+  function pickCard(r, opts) {
+    const { count, badge, disabled, selected, onclick, title } = opts;
+    return h('button', {
+      class: `pick-card res-card ${r}` + (selected ? ' selected' : '') + (disabled ? ' empty' : ''),
+      disabled, title: title || RES_NAME[r], 'aria-pressed': selected ? 'true' : null, onclick,
+    },
+    glyph(r),
+    count !== undefined && h('span', { class: 'res-count' }, count),
+    badge && h('span', { class: 'pick-badge' }, badge),
+    h('span', { class: 'res-name' }, RES_NAME[r]));
+  }
+
+  // The cards picked so far, fanned by resource. Clicking one puts it back.
+  function tray(label, hand, onRemove, emptyText) {
+    const cards = RESOURCES.flatMap(r => Array.from({ length: hand[r] }, () => r));
+    return h('div', { class: 'tray' },
+      h('div', { class: 'sub-label' }, label, cards.length > 0 && h('span', { class: 'tray-count' }, cards.length)),
+      h('div', { class: 'tray-cards' }, cards.length
+        ? cards.map((r, i) => h('button', {
+          class: `tray-card res-card ${r}` + (i > 0 && cards[i - 1] === r ? ' stacked' : ''),
+          title: `Put back ${RES_NAME[r]}`, onclick: () => onRemove(r),
+        }, glyph(r)))
+        : h('span', { class: 'tray-empty' }, emptyText)));
   }
 
   function renderModal(v, g, me) {
@@ -770,8 +788,13 @@
       const n = C.countHand(sel);
       content = [
         h('h2', {}, 'Year of Plenty'),
-        h('p', {}, 'Take any 2 resources from the bank.'),
-        h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(sel, r, Math.min(g.bank[r], sel[r] + 2 - n), rerender))),
+        h('p', {}, 'Take any two resources from the bank.'),
+        tray(`You take · ${n} of 2`, sel, r => { sel[r]--; rerender(); }, 'Click two cards below'),
+        h('div', { class: 'sub-label' }, 'From the bank'),
+        h('div', { class: 'pick-row' }, RESOURCES.map(r => pickCard(r, {
+          count: g.bank[r] - sel[r], disabled: n >= 2 || g.bank[r] - sel[r] < 1,
+          title: `Take ${RES_NAME[r]}`, onclick: () => { sel[r]++; rerender(); },
+        }))),
         h('div', { class: 'actions' },
           h('button', { onclick: closeDialog }, 'Cancel'),
           h('button', {
@@ -787,9 +810,10 @@
       content = [
         h('h2', {}, 'Monopoly'),
         h('p', {}, 'Every other player gives you all of one resource.'),
-        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
+        h('div', { class: 'pick-row' }, RESOURCES.map(r => pickCard(r, {
+          title: `Take everyone’s ${RES_NAME[r]}`,
           onclick: () => { ui.dialog = null; send('playDev', { card: 'monopoly', resource: r }); },
-        }, chip(r), RES_NAME[r]))),
+        }))),
         h('div', { class: 'actions' }, h('button', { onclick: closeDialog }, 'Cancel')),
       ];
     }
@@ -806,53 +830,89 @@
     const sel = ui.discardSel;
     const n = C.countHand(sel);
     return [
-      h('h2', {}, 'The robber strikes!'),
-      h('p', {}, `You have more than 7 cards. Discard ${need} (${n}/${need} selected).`),
-      h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(sel, r, n >= need ? sel[r] : me.res[r], rerender))),
+      h('h2', {}, 'The robber strikes'),
+      h('p', {}, `You have more than 7 cards, so you must discard ${need}.`),
+      tray(`Discarding · ${n} of ${need}`, sel, r => { sel[r]--; rerender(); }, 'Click cards in your hand'),
+      h('div', { class: 'sub-label' }, 'Your hand'),
+      h('div', { class: 'pick-row' }, RESOURCES.map(r => {
+        const left = me.res[r] - sel[r];
+        return pickCard(r, { count: left, disabled: left <= 0 || n >= need, onclick: () => { sel[r]++; rerender(); } });
+      })),
       h('div', { class: 'actions' },
         h('button', { class: 'primary', disabled: n !== need, onclick: () => send('discard', { cards: sel }) }, 'Discard')),
     ];
   }
 
   function tradeModal(g, me, rerender) {
+    const tab = ui.tradeTab;
+    const tabs = h('div', { class: 'feed-tabs modal-tabs', role: 'tablist' }, [['players', 'With players'], ['bank', 'With the bank']]
+      .map(([id, label]) => h('button', {
+        class: 'tab', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { ui.tradeTab = id; rerender(); },
+      }, label)));
+
+    if (tab === 'bank') {
+      const give = ui.bankGive, get = ui.bankGet;
+      const rate = give ? me.rates[give] : 0;
+      const ok = give && get && give !== get && me.res[give] >= rate && g.bank[get] > 0;
+      return [
+        h('h2', {}, 'Trade'),
+        tabs,
+        h('p', {}, 'The bank trades 4 for 1. Your ports improve the rate.'),
+        h('div', { class: 'sub-label' }, 'Get from the bank'),
+        h('div', { class: 'pick-row' }, RESOURCES.map(r => pickCard(r, {
+          selected: get === r, disabled: g.bank[r] < 1 || r === give,
+          title: g.bank[r] < 1 ? 'The bank has none left' : `Get 1 ${RES_NAME[r]}`,
+          onclick: () => { ui.bankGet = r; rerender(); },
+        }))),
+        h('div', { class: 'bank-summary' }, ok
+          ? [h('span', { class: 'res-group' }, h('span', { class: 'qty' }, rate), chip(give)), icon('swap'),
+            h('span', { class: 'res-group' }, h('span', { class: 'qty' }, 1), chip(get))]
+          : 'Pick one card to get and one to give.'),
+        h('div', { class: 'sub-label' }, 'Give from your hand'),
+        h('div', { class: 'pick-row' }, RESOURCES.map(r => pickCard(r, {
+          count: me.res[r], badge: `${me.rates[r]}:1`, selected: give === r, disabled: me.res[r] < me.rates[r],
+          title: me.res[r] < me.rates[r] ? `You need ${me.rates[r]} ${RES_NAME[r]}` : `Give ${me.rates[r]} ${RES_NAME[r]}`,
+          onclick: () => { ui.bankGive = r; if (ui.bankGet === r) ui.bankGet = null; rerender(); },
+        }))),
+        h('div', { class: 'actions' },
+          h('button', { onclick: closeDialog }, 'Close'),
+          h('button', {
+            class: 'primary', disabled: !ok,
+            onclick: () => { send('tradeBank', { give, get }); ui.bankGive = ui.bankGet = null; rerender(); },
+          }, 'Trade with bank')),
+      ];
+    }
+
     const give = ui.tradeGive, get = ui.tradeGet;
-    const offerOk = C.countHand(give) > 0 && C.countHand(get) > 0 && RESOURCES.every(r => !(give[r] && get[r]));
-    const bankOk = ui.bankGive && ui.bankGet && ui.bankGive !== ui.bankGet
-      && me.res[ui.bankGive] >= me.rates[ui.bankGive] && g.bank[ui.bankGet] > 0;
+    const ok = C.countHand(give) > 0 && C.countHand(get) > 0;
     return [
       h('h2', {}, 'Trade'),
-      h('div', { class: 'trade-section' },
-        h('div', { class: 'panel-title' }, 'With the bank'),
-        h('div', { class: 'sub-label' }, 'Give'),
-        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
-          class: 'small' + (ui.bankGive === r ? ' active' : ''),
-          disabled: me.res[r] < me.rates[r],
-          onclick: () => { ui.bankGive = r; rerender(); },
-        }, `${me.rates[r]}`, chip(r)))),
-        h('div', { class: 'sub-label' }, 'Get'),
-        h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
-          class: 'small' + (ui.bankGet === r ? ' active' : ''),
-          disabled: g.bank[r] < 1 || r === ui.bankGive,
-          onclick: () => { ui.bankGet = r; rerender(); },
-        }, '1', chip(r)))),
-        h('div', { class: 'actions' }, h('button', {
-          class: 'primary', disabled: !bankOk,
-          onclick: () => { send('tradeBank', { give: ui.bankGive, get: ui.bankGet }); ui.bankGive = ui.bankGet = null; },
-        }, 'Trade with bank')),
-      ),
-      h('div', { class: 'trade-section' },
-        h('div', { class: 'panel-title' }, 'With players'),
-        h('div', { class: 'trade-cols' },
-          h('div', {}, h('div', { class: 'sub-label' }, 'You give'),
-            h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(give, r, me.res[r], rerender)))),
-          h('div', {}, h('div', { class: 'sub-label' }, 'You want'),
-            h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(get, r, 9, rerender))))),
-        h('div', { class: 'actions' }, h('button', {
-          class: 'primary', disabled: !offerOk,
+      tabs,
+      h('div', { class: 'sub-label' }, 'Ask for'),
+      h('div', { class: 'pick-row' }, RESOURCES.map(r => pickCard(r, {
+        disabled: give[r] > 0 || get[r] >= 9,
+        title: give[r] > 0 ? `You’re offering ${RES_NAME[r]}` : `Ask for ${RES_NAME[r]}`,
+        onclick: () => { get[r]++; rerender(); },
+      }))),
+      h('div', { class: 'trays' },
+        tray('You give', give, r => { give[r]--; rerender(); }, 'Click cards in your hand below'),
+        h('div', { class: 'tray-arrow' }, icon('swap')),
+        tray('You get', get, r => { get[r]--; rerender(); }, 'Click what you want above')),
+      h('div', { class: 'sub-label' }, 'Your hand'),
+      h('div', { class: 'pick-row' }, RESOURCES.map(r => {
+        const left = me.res[r] - give[r];
+        return pickCard(r, {
+          count: left, disabled: left <= 0 || get[r] > 0,
+          title: get[r] > 0 ? `You’re asking for ${RES_NAME[r]}` : `Offer ${RES_NAME[r]}`,
+          onclick: () => { give[r]++; rerender(); },
+        });
+      })),
+      h('div', { class: 'actions' },
+        h('button', { onclick: closeDialog }, 'Cancel'),
+        h('button', {
+          class: 'primary', disabled: !ok,
           onclick: () => { send('proposeTrade', { give, get }); ui.dialog = null; render(); },
-        }, 'Send offer to everyone')),
-      ),
-      h('div', { class: 'actions' }, h('button', { onclick: closeDialog }, 'Close')),
+        }, 'Offer to everyone')),
     ];
   }
 
