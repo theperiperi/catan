@@ -294,6 +294,7 @@ input:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px #90
 .chat-line { word-wrap: break-word; }
 .chat-form { display: flex; gap: 6px; }
 .chat-form input { flex: 1; padding: 8px 10px; font-size: 14px; }
+#side .feed { flex: none; }
 
 /* ---------- game layout ---------- */
 
@@ -435,7 +436,31 @@ input:focus { outline: none; border-color: var(--red); box-shadow: 0 0 0 3px #90
 .offer-label { display: inline-block; width: 66px; font: 600 11px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 
 /* Log */
-.log-panel #log { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+/* Sidebar feed: log and chat share one tabbed panel */
+.feed { padding: 10px 16px 14px; }
+.feed-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.feed .tab {
+  padding: 6px 0 8px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  font: 600 11px var(--sans);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.feed .tab:hover:not(:disabled) { background: none; color: var(--ink-2); }
+.feed .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--red); }
+.unread { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--red); color: #fff; font-size: 10px; letter-spacing: 0; display: inline-grid; place-items: center; }
+.feed-pane { height: 150px; }
+.feed .chat { display: flex; flex-direction: column; }
+#side .feed .chat-list { flex: 1; max-height: none; min-height: 0; }
+#log { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .log-line { border-left: 2px solid var(--pc, transparent); padding-left: 8px; color: var(--ink-2); }
 .log-line.turn { margin-top: 8px; font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); border-left-color: transparent; padding-left: 0; }
 

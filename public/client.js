@@ -24,6 +24,8 @@
     seenNotices: new Set(), // notice keys already animated in
     flashes: [],            // short-lived notices: { key, title, text, until }
     lastTurnFlash: null,
+    feedTab: 'log',          // sidebar feed: 'log' | 'chat'
+    chatSeen: null,          // chat messages already seen, for the unread count
   };
 
   const store = {
@@ -275,6 +277,23 @@
         h('b', {}, m.name + ': '), m.text)));
       if (atBottom) list.scrollTop = list.scrollHeight;
     });
+    // Unread count on the in-game Chat tab while the log is showing.
+    if (ui.chatSeen === null || ui.feedTab === 'chat' || !v.started) ui.chatSeen = v.chat.length;
+    const unread = v.chat.length - ui.chatSeen;
+    const badge = document.querySelector('.feed .unread');
+    badge.hidden = unread <= 0;
+    badge.textContent = unread;
+  }
+
+  function setFeedTab(tab) {
+    ui.feedTab = tab;
+    document.querySelectorAll('.feed .tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === tab)));
+    document.querySelectorAll('.feed .feed-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+    if (state.view) renderChat(state.view);
+    const pane = document.querySelector(`.feed [data-pane="${tab}"]`);
+    const list = tab === 'chat' ? pane.querySelector('.chat-list') : pane;
+    list.scrollTop = list.scrollHeight;
+    if (tab === 'chat') pane.querySelector('input').focus();
   }
 
   function renderGame(v) {
@@ -934,6 +953,7 @@
       if (btn && !btn.disabled) { ev.preventDefault(); btn.click(); }
     });
     bindChat();
+    document.querySelectorAll('.feed .tab').forEach(t => t.addEventListener('click', () => setFeedTab(t.dataset.tab)));
     mountThemeToggles();
     renderArt();
 

@@ -142,15 +142,20 @@
         </svg>
         <span class="brand-name">Catan</span><span id="game-code"></span>
       </header>
+      <div class="panel feed">
+        <div class="feed-tabs" role="tablist">
+          <button class="tab" role="tab" data-tab="log" aria-selected="true">Game log</button>
+          <button class="tab" role="tab" data-tab="chat" aria-selected="false">Chat <span class="unread" hidden></span></button>
+        </div>
+        <div id="log" class="feed-pane" data-pane="log" role="tabpanel"></div>
+        <div class="chat feed-pane" data-pane="chat" role="tabpanel" hidden>
+          <div class="chat-list"></div>
+          <form class="chat-form"><input maxlength="300" placeholder="Message the table…"><button>Send</button></form>
+        </div>
+      </div>
       <div id="players"></div>
       <div id="turn" class="panel"></div>
       <div id="hand" class="panel"></div>
-      <div class="panel log-panel"><div class="panel-title">Game log</div><div id="log"></div></div>
-      <div class="panel chat">
-        <div class="panel-title">Chat</div>
-        <div class="chat-list"></div>
-        <form class="chat-form"><input maxlength="300" placeholder="Message the table…"><button>Send</button></form>
-      </div>
     </aside>
   </section>
 
