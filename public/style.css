@@ -750,3 +750,134 @@ button.tray-card.stacked { margin-left: -26px; }
 .theme-toggle[aria-checked="true"] .tt-knob { transform: translateX(28px); background: var(--ink); }
 .theme-toggle[aria-checked="true"] .tt-track .icon:last-of-type { color: var(--surface); }
 .theme-toggle:hover .tt-track { border-color: var(--ink-3); }
+
+/* ---------- lobby: colour + settings ---------- */
+
+#settings-note { margin-left: auto; letter-spacing: .02em; text-transform: none; font-weight: 500; }
+.members-hint { margin: 8px 0 0; font-size: 12px; }
+
+/* Your own row: click the house for colours, the name to rename */
+.color-ctl { position: relative; display: inline-flex; }
+button.member-color {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: -6px -6px -6px -6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+}
+button.member-color:hover:not(:disabled), button.member-color[aria-expanded="true"] { background: var(--surface-2); border-color: var(--line-strong); }
+.member-color .settlement-icon { width: 20px; height: 21px; }
+.color-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: -8px;
+  z-index: 20;
+  width: 220px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  transform-origin: top left;
+  animation: pop-in .14s ease-out;
+}
+@keyframes pop-in { from { transform: scale(.96); } }
+button.color-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-weight: 500;
+  text-align: left;
+}
+button.color-option:hover:not(:disabled) { background: var(--surface-2); }
+button.color-option.current { font-weight: 600; }
+button.color-option .icon { margin-left: auto; width: 16px; height: 16px; color: var(--red-text); }
+button.color-option:disabled { opacity: .45; }
+.color-owner { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+
+button.member-name.editable {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: -5px -8px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font: 600 14px var(--sans);
+}
+button.member-name.editable:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-strong); }
+.edit-hint { font-size: 11px; font-weight: 500; color: var(--ink-3); opacity: 0; transition: opacity .12s; }
+button.member-name.editable:hover .edit-hint, button.member-name.editable:focus-visible .edit-hint { opacity: 1; }
+input.name-input { width: 170px; margin: -6px 0; padding: 5px 8px; font-size: 14px; font-weight: 600; }
+
+.settings { border: 1px solid var(--line); border-radius: var(--radius); }
+.setting { display: flex; align-items: center; gap: 16px; padding: 14px; border-top: 1px solid var(--line); }
+.setting:first-child { border-top: 0; }
+.setting.stacked { flex-direction: column; align-items: stretch; gap: 12px; }
+.setting-text { flex: 1; }
+.setting-name { font-weight: 600; }
+.setting-desc { margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
+
+button.switch {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+}
+button.switch:hover:not(:disabled) { background: var(--surface-2); }
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 3px #0004;
+  transition: transform .2s cubic-bezier(.3, .7, .4, 1.2);
+}
+button.switch[aria-checked="true"] { background: var(--red); border-color: var(--red); }
+button.switch[aria-checked="true"] .switch-knob { transform: translateX(18px); background: #fff; }
+button.switch:disabled { opacity: .6; }
+
+.segmented { display: grid; grid-template-columns: repeat(5, 1fr); padding: 3px; gap: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+.segmented button { padding: 7px 0; border: 0; background: none; font-size: 13px; color: var(--ink-2); border-radius: 6px; }
+.segmented button:hover:not(:disabled) { background: var(--surface); }
+.segmented button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
+.segmented button:disabled { opacity: 1; cursor: default; }
+.segmented button[aria-checked="false"]:disabled { color: var(--ink-3); }
+
+/* ---------- turn timer ---------- */
+
+.bar-timer {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-content: center;
+  gap: 2px 10px;
+  min-width: 128px;
+  padding: 6px 14px 8px;
+  margin-right: 6px;
+  border-right: 1px solid var(--line);
+}
+.timer-who { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); align-self: end; }
+.timer-time { grid-row: span 2; align-self: center; justify-self: end; font: 600 28px/1 var(--serif); font-variant-numeric: tabular-nums; }
+.timer-track { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; align-self: start; margin-top: 4px; }
+.timer-fill { display: block; height: 100%; width: 100%; background: var(--ink-2); border-radius: 4px; transition: width .25s linear; }
+.bar-timer.low .timer-time { color: var(--red-text); }
+.bar-timer.low .timer-fill { background: var(--red); }

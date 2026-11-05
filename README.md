@@ -25,6 +25,23 @@ You can also deploy `server.js` to any Node host (Render, Fly.io, Railway, …).
 
 If you refresh or drop off, open the same link again to rejoin. Games live in server memory, so restarting the server ends them.
 
+## Lobby settings
+
+Everyone picks their piece colour (red, blue, white, orange, green or brown — no two players share one).
+The host also chooses:
+
+- **Balanced dice** — numbers come up close to the odds on the board, with fewer streaks. It follows
+  [Colonist's published design](https://blog.colonist.io/designing-balanced-dice): each roll draws from a
+  deck of all 36 dice combinations, rebuilt when 12 remain, and the previous total is 30% less likely to
+  repeat. In 2-player games sevens are also nudged towards an even split between the players (Colonist
+  does this for 1v1 but doesn't publish its numbers, so that strength is our own choice). Off means
+  ordinary independent dice.
+- **Turn timer** — off, 30s, 60s, 90s or 2 min for the whole turn (rolling, trading, building).
+  Each opening settlement-and-road placement always gets 60 seconds, and each Special Building window
+  in 5–6 player games gets 30 seconds. When time runs out the server finishes the turn: it places a
+  random legal settlement/road during setup, otherwise it rolls, makes any pending discards, moves the
+  robber off the player's own tiles, steals at random, withdraws open trades and ends the turn.
+
 ## Rules implemented
 
 Games with 2–4 players use the base game. Games with 5–6 players automatically use the 5–6 player extension:

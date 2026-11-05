@@ -25,6 +25,24 @@
   };
   // Official piece colours: red, blue, white, orange; the 5-6 extension adds green and brown.
   const PLAYER_COLORS = ['#c8262f', '#2f5fb3', '#f1ede2', '#e8862a', '#2e8b45', '#7b4a26'];
+  const COLOR_NAMES = {
+    '#c8262f': 'Red', '#2f5fb3': 'Blue', '#f1ede2': 'White', '#e8862a': 'Orange', '#2e8b45': 'Green', '#7b4a26': 'Brown',
+  };
+
+  // Turn timer choices in seconds (0 = off). Opening placements always get SETUP_SECONDS each,
+  // and each Special Building window gets at most SPECIAL_BUILD_SECONDS.
+  const TIMER_CHOICES = [0, 30, 60, 90, 120];
+  const SETUP_SECONDS = 60;
+  const SPECIAL_BUILD_SECONDS = 30;
+  const DEFAULT_SETTINGS = { balancedDice: false, turnTimer: 0 };
+
+  function cleanSettings(s) {
+    s = s || {};
+    return {
+      balancedDice: !!s.balancedDice,
+      turnTimer: TIMER_CHOICES.includes(Number(s.turnTimer)) ? Number(s.turnTimer) : 0,
+    };
+  }
   const WIN_POINTS = 10;
   const MIN_PLAYERS = 2;
   const MAX_PLAYERS = 6;
@@ -207,14 +225,19 @@
 
   // ---------- game setup ----------
 
-  function newGame(names, seed) {
+  // opts: { colors: [...], balancedDice, turnTimer }
+  function newGame(names, seed, opts) {
     const n = names.length;
     if (n < MIN_PLAYERS || n > MAX_PLAYERS) fail(`Catan needs ${MIN_PLAYERS}-${MAX_PLAYERS} players.`);
+    opts = opts || {};
+    const settings = cleanSettings(opts);
+    const colors = Array.isArray(opts.colors) && new Set(opts.colors).size === n && opts.colors.every(c => PLAYER_COLORS.includes(c))
+      ? opts.colors : PLAYER_COLORS.slice(0, n);
     const rand = makeRng(seed === undefined ? Math.floor(Math.random() * 2 ** 32) : seed);
     const ed = n > 4 ? EDITIONS.extended : EDITIONS.base;
     const board = buildBoard(rand, ed);
     const players = names.map((name, i) => ({
-      name, color: PLAYER_COLORS[i], res: emptyHand(), dev: [], knights: 0,
+      name, color: colors[i], res: emptyHand(), dev: [], knights: 0,
       roadsLeft: 15, settlementsLeft: 5, citiesLeft: 4, playedDevThisTurn: false,
     }));
     const order = [...Array(n).keys()];
@@ -242,6 +265,11 @@
       largestArmyHolder: null,
       winner: null,
       log: [],
+      settings,
+      diceDeck: [],
+      lastRoll: null,
+      sevens: Array(n).fill(0),
+      timer: { key: null, deadline: null, seconds: 0 },
       rand,
     };
     log(g, `Game started. ${players[0].name} places first.`);
@@ -468,10 +496,11 @@
   function rollDice(g, forced) {
     if (g.phase !== 'roll') fail('You can’t roll right now.');
     const p = g.players[g.current];
-    const d1 = forced ? forced[0] : 1 + Math.floor(g.rand() * 6);
-    const d2 = forced ? forced[1] : 1 + Math.floor(g.rand() * 6);
+    const [d1, d2] = forced || (g.settings.balancedDice ? drawBalanced(g) : [1 + Math.floor(g.rand() * 6), 1 + Math.floor(g.rand() * 6)]);
     g.dice = [d1, d2];
     const sum = d1 + d2;
+    g.lastRoll = sum;
+    if (sum === 7) g.sevens[g.current]++;
     log(g, `${p.name} rolled ${sum}.`, g.current);
     if (sum === 7) {
       g.discards = {};
@@ -491,6 +520,35 @@
     }
     distribute(g, sum);
     g.phase = 'main';
+  }
+
+  // Balanced dice, following Colonist's published design: each roll draws a card from a deck of
+  // all 36 two-dice combinations, the deck is rebuilt once 12 cards remain, and the draw is
+  // weighted so the previous total is 30% less likely to repeat. In 2-player games sevens are
+  // also nudged towards an even split between the players (Colonist balances 1v1 sevens too but
+  // doesn't publish its numbers; SEVEN_BALANCE is our own setting).
+  const DICE_RESHUFFLE_AT = 12;
+  const REPEAT_WEIGHT = 0.7;
+  const SEVEN_BALANCE = 0.3;
+
+  function sevenWeight(g) {
+    if (g.players.length !== 2) return 1;
+    const total = g.sevens[0] + g.sevens[1];
+    const surplus = g.sevens[g.current] - total / 2; // > 0: the roller has had more than their share
+    return Math.min(1.6, Math.max(0.4, 1 - SEVEN_BALANCE * surplus));
+  }
+
+  function drawBalanced(g) {
+    if (g.diceDeck.length <= DICE_RESHUFFLE_AT) {
+      g.diceDeck = [];
+      for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) g.diceDeck.push([a, b]);
+    }
+    const sevens = sevenWeight(g);
+    const weights = g.diceDeck.map(([a, b]) => (a + b === g.lastRoll ? REPEAT_WEIGHT : 1) * (a + b === 7 ? sevens : 1));
+    let x = g.rand() * weights.reduce((t, w) => t + w, 0);
+    let i = 0;
+    while (i < weights.length - 1 && (x -= weights[i]) >= 0) i++;
+    return g.diceDeck.splice(i, 1)[0];
   }
 
   function distribute(g, sum) {
@@ -730,6 +788,69 @@
     checkWin(g);
   }
 
+  // ---------- turn timer ----------
+
+  // Identifies the stretch of play the clock is running for; a new key restarts the clock.
+  function timerKey(g) {
+    if (!g.settings.turnTimer || g.phase === 'over') return null;
+    if (g.phase === 'setup') return `setup:${g.setup.idx}`;
+    if (g.phase === 'specialBuild') return `build:${g.turn}:${g.current}`;
+    return `turn:${g.turn}`;
+  }
+
+  // Starts a fresh countdown whenever the key changes. Returns the deadline (ms) or null.
+  function syncTimer(g, now) {
+    const key = timerKey(g);
+    if (key === null) {
+      g.timer = { key: null, deadline: null, seconds: 0 };
+    } else if (key !== g.timer.key) {
+      const seconds = g.phase === 'setup' ? SETUP_SECONDS
+        : g.phase === 'specialBuild' ? Math.min(SPECIAL_BUILD_SECONDS, g.settings.turnTimer)
+          : g.settings.turnTimer;
+      g.timer = { key, deadline: now + seconds * 1000, seconds };
+    }
+    return g.timer.deadline;
+  }
+
+  function pickRandom(g, arr) { return arr[Math.floor(g.rand() * arr.length)]; }
+
+  // Time ran out: finish the stalled step on the player's behalf, then end the turn.
+  function forceTimeout(g) {
+    const key = timerKey(g);
+    if (key === null) return;
+    log(g, `Time’s up for ${g.players[g.current].name}.`, g.current);
+    for (let guard = 0; guard < 60 && timerKey(g) === key; guard++) {
+      const pi = g.current;
+      switch (g.phase) {
+        case 'setup':
+          if (g.setup.step === 'settlement') placeSettlement(g, pickRandom(g, legalSettlementSpots(g, pi)));
+          else placeRoad(g, pickRandom(g, legalRoadSpots(g, pi)));
+          break;
+        case 'roll': rollDice(g); break;
+        case 'discard':
+          Object.keys(g.discards).forEach(k => {
+            const q = g.players[k], sel = emptyHand();
+            for (let i = 0; i < g.discards[k]; i++) {
+              sel[pickRandom(g, RESOURCES.filter(r => q.res[r] > sel[r]))]++;
+            }
+            discard(g, Number(k), sel);
+          });
+          break;
+        case 'robber': {
+          const others = g.tiles.map((_, i) => i).filter(i => i !== g.robber);
+          const safe = others.filter(i => !g.tiles[i].verts.some(v => g.vertices[v].building && g.vertices[v].building.owner === pi));
+          moveRobber(g, pickRandom(g, safe.length ? safe : others));
+          break;
+        }
+        case 'steal': steal(g, pickRandom(g, g.stealCandidates)); break;
+        case 'roadBuilding': placeRoad(g, pickRandom(g, legalRoadSpots(g, pi))); break;
+        case 'main': g.trade = null; endTurn(g); break;
+        case 'specialBuild': endTurn(g); break;
+        default: return;
+      }
+    }
+  }
+
   // ---------- per-player view (hides other players' hands) ----------
 
   function viewFor(g, pi) {
@@ -747,6 +868,8 @@
       phase: g.phase,
       setupStep: g.phase === 'setup' ? g.setup.step : null,
       bankSize: g.bankSize,
+      settings: g.settings,
+      timer: g.timer.deadline ? { deadline: g.timer.deadline, seconds: g.timer.seconds } : null,
       specialBuildFor: g.phase === 'specialBuild' ? g.specialBuild.turnPlayer : null,
       dice: g.dice,
       discards: { ...g.discards },
@@ -789,7 +912,9 @@
   }
 
   return {
-    RESOURCES, RES_NAME, COSTS, PIPS, DEV_INFO, PLAYER_COLORS, WIN_POINTS, MIN_PLAYERS, MAX_PLAYERS,
+    RESOURCES, RES_NAME, COSTS, PIPS, DEV_INFO, PLAYER_COLORS, COLOR_NAMES, WIN_POINTS, MIN_PLAYERS, MAX_PLAYERS,
+    TIMER_CHOICES, SETUP_SECONDS, SPECIAL_BUILD_SECONDS, DEFAULT_SETTINGS, cleanSettings,
+    timerKey, syncTimer, forceTimeout, drawBalanced, DICE_RESHUFFLE_AT,
     RuleError, cleanHand, countHand, totalCards, canAfford, fmtRes,
     newGame, isVertexOpen, legalSettlementSpots, legalCitySpots, legalRoadSpots, bankRate, playableDev,
     longestRoadFor, victoryPoints,

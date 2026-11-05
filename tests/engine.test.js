@@ -256,3 +256,118 @@ test('random games stay consistent and finish', () => {
   }
   assert.ok(finished >= 30, `only ${finished}/40 games finished`);
 });
+
+// A bare game state for exercising the dice on their own.
+function diceState(players, seed) {
+  return { diceDeck: [], lastRoll: null, sevens: Array(players).fill(0), players: Array(players).fill({}), current: 0, rand: C.newGame(['a', 'b'], seed).rand };
+}
+const SUM_ODDS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
+
+test('balanced dice draw distinct combinations and rebuild the deck at 12 left', () => {
+  const g = diceState(4, 3);
+  const seen = new Set();
+  for (let i = 0; i < 24; i++) {
+    const [a, b] = C.drawBalanced(g);
+    seen.add(`${a},${b}`);
+    g.lastRoll = a + b;
+  }
+  assert.strictEqual(seen.size, 24, 'no combination repeats before the reshuffle');
+  assert.strictEqual(g.diceDeck.length, C.DICE_RESHUFFLE_AT);
+  C.drawBalanced(g);
+  assert.strictEqual(g.diceDeck.length, 35, 'a fresh 36-card deck is used once 12 remain');
+});
+
+test('balanced dice track the board odds and repeat totals less than real dice', () => {
+  const g = diceState(4, 21);
+  const counts = {}, N = 72000;
+  let repeats = 0;
+  for (let i = 0; i < N; i++) {
+    const [a, b] = C.drawBalanced(g);
+    const sum = a + b;
+    if (sum === g.lastRoll) repeats++;
+    g.lastRoll = sum;
+    counts[sum] = (counts[sum] || 0) + 1;
+    g.current = (g.current + 1) % 4;
+  }
+  for (const [sum, ways] of Object.entries(SUM_ODDS)) {
+    const expected = (N * ways) / 36;
+    assert.ok(Math.abs(counts[sum] - expected) / expected < 0.12, `total ${sum}: ${counts[sum]} vs ~${Math.round(expected)}`);
+  }
+  // Independent dice repeat the previous total 146/1296 ≈ 11.3% of the time.
+  assert.ok(repeats / N < 0.09, `repeat rate ${(repeats / N).toFixed(3)} should be well below 0.113`);
+});
+
+test('in 2-player games balanced dice even out sevens between the players', () => {
+  const g = diceState(2, 8);
+  for (let i = 0; i < 20000; i++) {
+    const [a, b] = C.drawBalanced(g);
+    g.lastRoll = a + b;
+    if (a + b === 7) g.sevens[g.current]++;
+    g.current = 1 - g.current;
+  }
+  const [s0, s1] = g.sevens;
+  assert.ok(Math.abs(s0 - s1) <= 6, `sevens split ${s0}/${s1}`);
+  assert.ok(Math.abs(s0 + s1 - 20000 / 6) / (20000 / 6) < 0.12, 'sevens still come up about 1 in 6 overall');
+});
+
+test('balanced dice are used by rollDice when enabled', () => {
+  const g = C.newGame(['a', 'b'], 9, { balancedDice: true });
+  while (g.phase === 'setup') C.forceTimeout(Object.assign(g, { settings: { ...g.settings, turnTimer: 60 } }));
+  C.rollDice(g);
+  assert.strictEqual(g.diceDeck.length, 35);
+  assert.strictEqual(g.lastRoll, g.dice[0] + g.dice[1]);
+});
+
+test('settings are sanitised and colours are applied', () => {
+  assert.deepStrictEqual(C.cleanSettings({ balancedDice: 'yes', turnTimer: 77 }), { balancedDice: true, turnTimer: 0 });
+  const g = C.newGame(['a', 'b'], 1, { colors: ['#2e8b45', '#c8262f'], turnTimer: 90 });
+  assert.deepStrictEqual(g.players.map(p => p.color), ['#2e8b45', '#c8262f']);
+  assert.strictEqual(g.settings.turnTimer, 90);
+  const dupes = C.newGame(['a', 'b'], 1, { colors: ['#c8262f', '#c8262f'] });
+  assert.deepStrictEqual(dupes.players.map(p => p.color), C.PLAYER_COLORS.slice(0, 2), 'invalid colour lists fall back');
+});
+
+test('the turn timer gives 60s per opening placement and the full timer per turn', () => {
+  const g = C.newGame(['a', 'b', 'c'], 4, { turnTimer: 120 });
+  assert.strictEqual(C.syncTimer(g, 1000), 1000 + 60000);
+  assert.strictEqual(C.syncTimer(g, 5000), 61000, 'same placement keeps its deadline');
+  C.forceTimeout(g);
+  assert.strictEqual(g.vertices.filter(v => v.building).length, 1, 'timeout placed a settlement');
+  assert.strictEqual(g.edges.filter(e => e.road !== null).length, 1, 'and its road');
+  assert.strictEqual(g.current, 1);
+  assert.strictEqual(C.syncTimer(g, 9000), 69000, 'next placement gets a fresh 60s');
+  while (g.phase === 'setup') C.forceTimeout(g);
+  assert.strictEqual(g.phase, 'roll');
+  assert.strictEqual(C.syncTimer(g, 100000), 100000 + 120000);
+  C.forceTimeout(g);
+  assert.strictEqual(g.current, 1, 'a timed-out turn is rolled and ended');
+  assert.strictEqual(g.phase, 'roll');
+  checkInvariants(g);
+});
+
+test('timeouts during discards, robber and trades still end the turn cleanly', () => {
+  const g = C.newGame(['a', 'b'], 12, { turnTimer: 60 });
+  while (g.phase === 'setup') C.forceTimeout(g);
+  C.RESOURCES.forEach(r => { g.bank[r] += g.players[1].res[r]; });
+  g.players[1].res = { wood: 4, brick: 4, sheep: 2, wheat: 0, ore: 0 };
+  g.bank.wood -= 4; g.bank.brick -= 4; g.bank.sheep -= 2;
+  C.rollDice(g, [6, 1]);
+  assert.strictEqual(g.phase, 'discard');
+  C.forceTimeout(g);
+  assert.strictEqual(C.totalCards(g.players[1]) <= 6, true, 'the pending discard was made');
+  assert.strictEqual(g.current, 1);
+  assert.strictEqual(g.phase, 'roll');
+  checkInvariants(g);
+});
+
+test('random games with balanced dice and frequent timeouts stay consistent', () => {
+  for (let seed = 50; seed < 62; seed++) {
+    const n = 2 + (seed % 5);
+    const g = C.newGame(Array.from({ length: n }, (_, i) => 'p' + i), seed, { balancedDice: true, turnTimer: 60 });
+    const rand = (() => { let s = seed * 7919; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+    for (let step = 0; step < 6000 && g.phase !== 'over'; step++) {
+      if (rand() < 0.05) C.forceTimeout(g); else randomStep(g, rand);
+      checkInvariants(g);
+    }
+  }
+});

@@ -10,7 +10,7 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const $ = sel => document.querySelector(sel);
 
-  const state = { code: null, token: null, view: null, es: null, lanUrls: [] };
+  const state = { code: null, token: null, view: null, es: null, lanUrls: [], clockOffset: 0 };
   const ui = {
     mode: null,        // 'road' | 'settlement' | 'city' while choosing a build spot
     dialog: null,      // 'trade' | 'yearOfPlenty' | 'monopoly'
@@ -25,6 +25,9 @@
     seenNotices: new Set(), // notice keys already animated in
     flashes: [],            // short-lived notices: { key, title, text, until }
     lastTurnFlash: null,
+    colorMenu: false,        // lobby: colour list open
+    editingName: false,      // lobby: renaming yourself
+    warnedTimer: null,       // timer key we've already warned about
     feedTab: 'log',          // sidebar feed: 'log' | 'chat'
     chatSeen: null,          // chat messages already seen, for the unread count
   };
@@ -155,6 +158,7 @@
     es.onopen = () => { $('#conn').hidden = true; };
     es.onmessage = ev => {
       state.view = JSON.parse(ev.data);
+      state.clockOffset = state.view.serverNow - Date.now();
       render();
     };
     es.onerror = () => {
@@ -246,18 +250,9 @@
       : 'Send this link to your friends.';
 
     $('#member-count').textContent = `${v.members.length} of ${C.MAX_PLAYERS}`;
-    const rows = v.members.map((m, i) => h('li', {},
-      settlementIcon(m.color),
-      h('span', { class: 'member-name' }, m.name),
-      i === v.you && h('span', { class: 'tag' }, 'you'),
-      i === 0 && h('span', { class: 'tag' }, 'host'),
-      h('span', { class: 'presence' + (m.connected ? ' on' : '') }, m.connected ? 'here' : 'away'),
-    ));
-    if (v.members.length < C.MAX_PLAYERS) {
-      rows.push(h('li', { class: 'open-seat' },
-        `${C.MAX_PLAYERS - v.members.length} seat${C.MAX_PLAYERS - v.members.length > 1 ? 's' : ''} open`));
-    }
-    $('#members').replaceChildren(...rows);
+    // Don't rebuild the list mid-rename: that would drop focus and the half-typed name.
+    if (!(ui.editingName && $('#members .name-input'))) renderMembers(v);
+    renderLobbySettings(v);
 
     const actions = $('#lobby-actions');
     const n = v.members.length;
@@ -269,6 +264,116 @@
     } else {
       actions.replaceChildren(h('p', { class: 'hint' }, 'Waiting for the host to start the game…'));
     }
+  }
+
+  function fmtSeconds(sec) {
+    return sec < 120 ? `${sec}s` : `${sec / 60} min`;
+  }
+
+  // Player list. Your own row lets you change your colour (click the house) and name (click it).
+  function renderMembers(v) {
+    const rows = v.members.map((m, i) => {
+      const mine = i === v.you;
+      const colorCtl = mine
+        ? h('span', { class: 'color-ctl' },
+          h('button', {
+            class: 'member-color', 'aria-haspopup': 'listbox', 'aria-expanded': String(ui.colorMenu),
+            title: 'Change your color', 'aria-label': `Your color: ${C.COLOR_NAMES[m.color] || 'custom'}. Change`,
+            onclick: ev => { ev.stopPropagation(); ui.colorMenu = !ui.colorMenu; ui.editingName = false; renderMembers(v); },
+          }, settlementIcon(m.color)),
+          ui.colorMenu && colorMenu(v, m))
+        : settlementIcon(m.color);
+      const nameCtl = !mine ? h('span', { class: 'member-name' }, m.name)
+        : ui.editingName ? nameInput(v, m)
+          : h('button', {
+            class: 'member-name editable', title: 'Change your name',
+            onclick: ev => { ev.stopPropagation(); ui.editingName = true; ui.colorMenu = false; renderMembers(v); focusNameInput(); },
+          }, m.name, h('span', { class: 'edit-hint', 'aria-hidden': 'true' }, 'Edit'));
+      return h('li', { class: mine ? 'me' : '' },
+        colorCtl, nameCtl,
+        mine && h('span', { class: 'tag' }, 'you'),
+        i === 0 && h('span', { class: 'tag' }, 'host'),
+        h('span', { class: 'presence' + (m.connected ? ' on' : '') }, m.connected ? 'here' : 'away'));
+    });
+    if (v.members.length < C.MAX_PLAYERS) {
+      rows.push(h('li', { class: 'open-seat' },
+        `${C.MAX_PLAYERS - v.members.length} seat${C.MAX_PLAYERS - v.members.length > 1 ? 's' : ''} open`));
+    }
+    $('#members').replaceChildren(...rows);
+  }
+
+  function colorMenu(v, me) {
+    return h('div', { class: 'color-menu', role: 'listbox', 'aria-label': 'Choose your color', onclick: ev => ev.stopPropagation() },
+      C.PLAYER_COLORS.map(c => {
+        const owner = v.members.find(m => m.color === c);
+        const current = me.color === c;
+        return h('button', {
+          class: 'color-option' + (current ? ' current' : ''), role: 'option', 'aria-selected': String(current),
+          disabled: !!owner && !current,
+          onclick: () => { ui.colorMenu = false; if (!current) send('color', { color: c }); renderMembers(v); },
+        }, settlementIcon(c), h('span', { class: 'color-name' }, C.COLOR_NAMES[c]),
+        current ? icon('check') : owner && h('span', { class: 'color-owner' }, owner.name));
+      }));
+  }
+
+  function nameInput(v, me) {
+    let done = false;
+    const finish = save => {
+      if (done) return;
+      done = true;
+      ui.editingName = false;
+      const name = input.value.trim();
+      if (save && name && name !== me.name) {
+        store.set('catan:name', name);
+        send('rename', { name });
+      }
+      if (state.view && !state.view.started) renderMembers(state.view);
+    };
+    const input = h('input', {
+      class: 'name-input', value: me.name, maxlength: 20, 'aria-label': 'Your name',
+      onkeydown: ev => {
+        if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); }
+      },
+      onblur: () => finish(true),
+      onclick: ev => ev.stopPropagation(),
+    });
+    return input;
+  }
+
+  function focusNameInput() {
+    const input = $('#members .name-input');
+    if (input) { input.focus(); input.select(); }
+  }
+
+  function renderLobbySettings(v) {
+
+    // A server started before settings existed sends none; keep the lobby usable and say why.
+    const outdated = !v.settings;
+    const host = v.you === 0 && !outdated, st = v.settings || C.DEFAULT_SETTINGS;
+    const set = patch => send('settings', { settings: patch });
+    $('#settings-note').textContent = v.you === 0 ? '' : 'Set by the host';
+    $('#settings').replaceChildren(
+      h('div', { class: 'setting' },
+        h('div', { class: 'setting-text' },
+          h('div', { class: 'setting-name' }, 'Balanced dice'),
+          h('div', { class: 'setting-desc' }, st.balancedDice
+            ? 'On: numbers come up close to the odds on the board, with fewer streaks.'
+            : 'Off: each die is rolled at random, like real dice, so lucky and unlucky streaks can happen.')),
+        h('button', {
+          class: 'switch', role: 'switch', 'aria-checked': String(st.balancedDice), 'aria-label': 'Balanced dice',
+          disabled: !host, onclick: () => set({ balancedDice: !st.balancedDice }),
+        }, h('span', { class: 'switch-knob' }))),
+      h('div', { class: 'setting stacked' },
+        h('div', { class: 'setting-text' },
+          h('div', { class: 'setting-name' }, 'Turn timer'),
+          h('div', { class: 'setting-desc' },
+            'Covers the whole turn. When it runs out, the turn is finished automatically. Opening placements always get 60 seconds each.')),
+        h('div', { class: 'segmented', role: 'radiogroup', 'aria-label': 'Turn timer' }, C.TIMER_CHOICES.map(sec => h('button', {
+          role: 'radio', 'aria-checked': String(st.turnTimer === sec), disabled: !host,
+          onclick: () => set({ turnTimer: sec }),
+        }, sec ? fmtSeconds(sec) : 'Off')))),
+    );
   }
 
   function renderChat(v) {
@@ -317,6 +422,7 @@
     renderTurn(g, me);
     renderActionBar(g, me);
     renderNotices(g, me);
+    tickTimer();
     renderHand(g, me);
     renderLog(g);
     renderModal(v, g, me);
@@ -571,7 +677,13 @@
     const canTrade = mine && g.phase === 'main';
     const special = mine && g.phase === 'specialBuild';
 
+    const timer = g.timer && h('div', { class: 'bar-timer', id: 'turn-timer', role: 'timer' },
+      h('span', { class: 'timer-who' }, mine ? 'Your time' : g.players[g.current].name),
+      h('span', { class: 'timer-time' }),
+      h('span', { class: 'timer-track' }, h('span', { class: 'timer-fill' })));
+
     bar.replaceChildren(
+      ...(timer ? [timer] : []),
       h('button', {
         class: 'bar-roll' + (canRoll ? ' ready' : ''), disabled: !canRoll,
         title: canRoll ? 'Roll the dice (R)' : 'Not your roll', onclick: () => send('rollDice'),
@@ -597,6 +709,24 @@
         onclick: () => { ui.mode = null; send('endTurn'); },
       }, special ? 'Done building' : 'End turn'),
     );
+  }
+
+  // Updates the countdown between server updates (the server enforces the deadline).
+  function tickTimer() {
+    const el = $('#turn-timer');
+    const g = state.view && state.view.game;
+    if (!el || !g || !g.timer) return;
+    const left = Math.max(0, g.timer.deadline - (Date.now() + state.clockOffset));
+    const secs = Math.ceil(left / 1000);
+    el.querySelector('.timer-time').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    el.querySelector('.timer-fill').style.width = `${Math.min(100, (left / (g.timer.seconds * 1000)) * 100)}%`;
+    el.classList.toggle('low', secs <= 10);
+    const me = g.you;
+    if (me && me.index === g.current && secs <= 10 && secs > 0 && ui.warnedTimer !== g.timer.deadline) {
+      ui.warnedTimer = g.timer.deadline;
+      flash('timer-' + g.timer.deadline, '10 seconds left', 'Your turn will be finished for you when time runs out.', 4000);
+      renderNotices(g, me);
+    }
   }
 
   function flash(key, title, text, ms) {
@@ -999,8 +1129,12 @@
     $('#modal').addEventListener('click', ev => {
       if (ev.target.id === 'modal' && ui.dialog) closeDialog();
     });
+    document.addEventListener('click', () => {
+      if (ui.colorMenu && state.view && !state.view.started) { ui.colorMenu = false; renderMembers(state.view); }
+    });
     document.addEventListener('keydown', ev => {
       if (ev.key === 'Escape') {
+        if (ui.colorMenu && state.view && !state.view.started) { ui.colorMenu = false; renderMembers(state.view); return; }
         if (ui.dialog) closeDialog();
         else if (ui.mode) { ui.mode = null; render(); }
         return;
@@ -1013,6 +1147,7 @@
       if (btn && !btn.disabled) { ev.preventDefault(); btn.click(); }
     });
     bindChat();
+    setInterval(tickTimer, 250);
     document.querySelectorAll('.feed .tab').forEach(t => t.addEventListener('click', () => setFeedTab(t.dataset.tab)));
     mountThemeToggles();
     renderArt();

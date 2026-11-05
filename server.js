@@ -27,15 +27,22 @@ function makeCode() {
   return code;
 }
 
-function cleanName(name, room) {
+// `self` is the member being renamed, whose own current name doesn't count as taken.
+function cleanName(name, room, self) {
   let n = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 20) || `Player ${room.members.length + 1}`;
-  const taken = new Set(room.members.map(m => m.name.toLowerCase()));
+  const taken = new Set(room.members.filter(m => m !== self).map(m => m.name.toLowerCase()));
   for (let i = 2, base = n; taken.has(n.toLowerCase()); i++) n = `${base} ${i}`;
   return n;
 }
 
+function freeColor(room) {
+  return C.PLAYER_COLORS.find(c => !room.members.some(m => m.color === c));
+}
+
 function addMember(room, name) {
-  const member = { token: crypto.randomBytes(16).toString('hex'), name: cleanName(name, room), connections: 0 };
+  const member = {
+    token: crypto.randomBytes(16).toString('hex'), name: cleanName(name, room), color: freeColor(room), connections: 0,
+  };
   room.members.push(member);
   return member;
 }
@@ -48,7 +55,9 @@ function roomView(room, pi) {
   return {
     code: room.code,
     you: pi,
-    members: room.members.map((m, i) => ({ name: m.name, color: C.PLAYER_COLORS[i], connected: m.connections > 0 })),
+    members: room.members.map(m => ({ name: m.name, color: m.color, connected: m.connections > 0 })),
+    settings: room.settings,
+    serverNow: Date.now(),
     started: !!room.game,
     chat: room.chat.slice(-60),
     game: room.game ? C.viewFor(room.game, pi) : null,
@@ -85,6 +94,23 @@ const ANY_ACTIONS = {
   respondTrade: (g, a, pi) => C.respondTrade(g, pi, !!a.accept),
 };
 
+// Runs the turn clock: when the deadline passes, the engine finishes the turn for the player.
+function scheduleTimer(room) {
+  clearTimeout(room.timerHandle);
+  const g = room.game;
+  if (!g) return;
+  const deadline = C.syncTimer(g, Date.now());
+  if (!deadline) return;
+  const key = g.timer.key;
+  room.timerHandle = setTimeout(() => {
+    if (room.game !== g || g.timer.key !== key) return;
+    C.forceTimeout(g);
+    scheduleTimer(room);
+    broadcast(room);
+  }, Math.max(0, deadline - Date.now()) + 100);
+  room.timerHandle.unref(); // the HTTP server keeps the process alive, not pending turn clocks
+}
+
 function handleAction(room, pi, a) {
   const type = a && a.type;
   if (type === 'chat') {
@@ -93,10 +119,32 @@ function handleAction(room, pi, a) {
     if (room.chat.length > 200) room.chat.splice(0, room.chat.length - 200);
     return;
   }
+  const inLobby = !room.game || room.game.phase === 'over';
+  if (type === 'settings') {
+    if (pi !== 0) throw new C.RuleError('Only the host can change settings.');
+    if (!inLobby) throw new C.RuleError('Settings can’t change during a game.');
+    room.settings = C.cleanSettings({ ...room.settings, ...a.settings });
+    return;
+  }
+  if (type === 'rename') {
+    if (room.game) throw new C.RuleError('Names are set before the game starts.');
+    if (!String(a.name || '').trim()) throw new C.RuleError('Your name can’t be empty.');
+    const m = room.members[pi];
+    m.name = cleanName(a.name, room, m);
+    return;
+  }
+  if (type === 'color') {
+    if (room.game) throw new C.RuleError('Colors are chosen before the game starts.');
+    if (!C.PLAYER_COLORS.includes(a.color)) throw new C.RuleError('Unknown color.');
+    const owner = room.members.find(m => m.color === a.color);
+    if (owner && owner !== room.members[pi]) throw new C.RuleError(`${owner.name} already has that color.`);
+    room.members[pi].color = a.color;
+    return;
+  }
   if (type === 'start' || type === 'newGame') {
     if (pi !== 0) throw new C.RuleError('Only the host can start the game.');
-    if (room.game && room.game.phase !== 'over') throw new C.RuleError('The game is already running.');
-    room.game = C.newGame(room.members.map(m => m.name));
+    if (!inLobby) throw new C.RuleError('The game is already running.');
+    room.game = C.newGame(room.members.map(m => m.name), undefined, { ...room.settings, colors: room.members.map(m => m.color) });
     return;
   }
   const g = room.game;
@@ -181,7 +229,10 @@ async function route(req, res) {
 
   if (req.method === 'POST' && parts[1] === 'rooms' && parts.length === 2) {
     const body = await readJson(req);
-    const room = { code: makeCode(), members: [], game: null, chat: [], clients: new Set(), lastActive: Date.now() };
+    const room = {
+      code: makeCode(), members: [], game: null, chat: [], clients: new Set(), lastActive: Date.now(),
+      settings: { ...C.DEFAULT_SETTINGS }, timerHandle: null,
+    };
     rooms.set(room.code, room);
     const m = addMember(room, body.name);
     return sendJson(res, 200, { code: room.code, token: m.token });
@@ -215,6 +266,7 @@ async function route(req, res) {
     const pi = memberIndex(room, body.token);
     if (pi < 0) return sendJson(res, 403, { error: 'You’re not in this game.' });
     handleAction(room, pi, body);
+    scheduleTimer(room);
     broadcast(room);
     return sendJson(res, 200, { ok: true });
   }
@@ -233,11 +285,22 @@ const server = http.createServer((req, res) => {
 setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
-    if (room.clients.size === 0 && now - room.lastActive > ROOM_TTL_MS) rooms.delete(code);
+    if (room.clients.size === 0 && now - room.lastActive > ROOM_TTL_MS) {
+      clearTimeout(room.timerHandle);
+      rooms.delete(code);
+    }
   }
 }, 10 * 60 * 1000).unref();
 
 if (require.main === module) {
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use — probably another Catan server that's still running.`);
+      console.error(`Stop it first (find it with: lsof -i :${PORT}), or pick another port: PORT=3001 pnpm start`);
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Catan server running.`);
     console.log(`  On this computer:  http://localhost:${PORT}`);
