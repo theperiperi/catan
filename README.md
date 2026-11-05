@@ -1,7 +1,10 @@
 # Catan
 
 An online Catan clone for 2–6 friends, each playing on their own device. It needs only Node.js 18 or newer and has no dependencies.
-<img width="1177" height="780" alt="Screenshot 2026-11-05 at 11 29 11 PM" src="https://github.com/user-attachments/assets/fe0922cb-e707-4b34-8502-831f95417480" />
+
+<img width="800" height="500" alt="Screenshot 2026-11-06 at 2 32 15 AM" src="https://github.com/user-attachments/assets/260e32c8-90c7-47b1-b3b2-dbe537d6fea3" />
+<img width="1177" height="778" alt="Screenshot 2026-11-06 at 2 33 47 AM" src="https://github.com/user-attachments/assets/87a1f35a-775f-4bdb-903f-73f0b84fd159" />
+
 
 ## Play
 
