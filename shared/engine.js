@@ -23,7 +23,8 @@
     monopoly: { name: 'Monopoly', text: 'Take every card of one resource from all players.' },
     victoryPoint: { name: 'Victory Point', text: '+1 VP, kept secret.' },
   };
-  const PLAYER_COLORS = ['#e04848', '#3b73d9', '#f2f2f2', '#f08c2a', '#9b59d0', '#25b5a8'];
+  // Official piece colours: red, blue, white, orange; the 5-6 extension adds green and brown.
+  const PLAYER_COLORS = ['#c8262f', '#2f5fb3', '#f1ede2', '#e8862a', '#2e8b45', '#7b4a26'];
   const WIN_POINTS = 10;
   const MIN_PLAYERS = 2;
   const MAX_PLAYERS = 6;

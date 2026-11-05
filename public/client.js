@@ -21,6 +21,9 @@
     bankGive: null,
     bankGet: null,
     hideResults: false,
+    seenNotices: new Set(), // notice keys already animated in
+    flashes: [],            // short-lived notices: { key, title, text, until }
+    lastTurnFlash: null,
   };
 
   const store = {
@@ -98,6 +101,18 @@
   // Server messages mark resources as {wood}, {ore}, …
   function richText(text) {
     return String(text).split(/\{(wood|brick|sheep|wheat|ore)\}/).map((part, i) => (i % 2 ? chip(part) : part));
+  }
+
+  function icon(name) {
+    const el = svg('svg', { class: 'icon', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+    svg('use', { href: `#g-${name}` }, el);
+    return el;
+  }
+
+  const PIP_CELLS = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  function dieFace(n, cls) {
+    return h('span', { class: 'die' + (cls ? ' ' + cls : ''), 'aria-label': String(n) },
+      Array.from({ length: 9 }, (_, i) => h('i', { class: PIP_CELLS[n].includes(i) ? 'on' : '' })));
   }
 
   function settlementIcon(color) {
@@ -271,12 +286,17 @@
       if (ui.dialog === 'trade' || ui.dialog === 'yearOfPlenty' || ui.dialog === 'monopoly') ui.dialog = null;
     }
     if (g.phase !== 'over') ui.hideResults = false;
+    if (me && g.current === me.index && g.phase === 'roll' && ui.lastTurnFlash !== g.turn) {
+      ui.lastTurnFlash = g.turn;
+      flash('turn-' + g.turn, 'Your turn', 'Roll the dice to begin.');
+    }
     $('#game-code').textContent = `Game ${v.code}`;
     renderBoard(g, me);
     renderDice(g);
     renderPlayers(v, g, me);
     renderTurn(g, me);
-    renderTradePanel(g, me);
+    renderActionBar(g, me);
+    renderNotices(g, me);
     renderHand(g, me);
     renderLog(g);
     renderModal(v, g, me);
@@ -291,14 +311,17 @@
     }).join(' ');
   }
 
-  function renderBoard(g, me) {
-    const root = $('#board');
+  function renderBoard(g, me, root = $('#board')) {
     root.replaceChildren();
     const xs = g.tiles.map(t => t.x), ys = g.tiles.map(t => t.y);
-    const pad = 2.15;
+    const pad = 2.6;
     const minX = (Math.min(...xs) - pad) * S, minY = (Math.min(...ys) - pad) * S;
     root.setAttribute('viewBox', `${minX} ${minY} ${(Math.max(...xs) + pad) * S - minX} ${(Math.max(...ys) + pad) * S - minY}`);
-    // Shallow water and a sandy shore follow the coastline.
+    // A wooden frame, open sea, shallows and a sandy shore follow the coastline.
+    const frame = svg('g', { class: 'frame' }, root);
+    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 2.32 * S, 30) }, frame));
+    const sea = svg('g', { class: 'sea' }, root);
+    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 2.14 * S, 30) }, sea));
     const shallows = svg('g', { class: 'shallows' }, root);
     g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 1.75 * S, 30) }, shallows));
     const beach = svg('g', { class: 'beach' }, root);
@@ -423,12 +446,9 @@
   function renderDice(g) {
     const el = $('#dice');
     if (!g.dice) { el.replaceChildren(); return; }
-    const PIP_CELLS = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-    const die = (n, cls) => h('span', { class: 'die' + (cls || ''), 'aria-label': String(n) },
-      Array.from({ length: 9 }, (_, i) => h('i', { class: PIP_CELLS[n].includes(i) ? 'on' : '' })));
     el.replaceChildren(
-      die(g.dice[0]),
-      die(g.dice[1], ' red'),
+      dieFace(g.dice[0]),
+      dieFace(g.dice[1], 'red'),
       h('span', { class: 'dice-sum' + (g.dice[0] + g.dice[1] === 7 ? ' seven' : '') }, g.dice[0] + g.dice[1]),
     );
   }
@@ -497,39 +517,7 @@
 
   function renderTurn(g, me) {
     const panel = $('#turn');
-    const mine = me && me.index === g.current;
     const kids = [h('div', { class: 'status' }, statusText(g, me))];
-
-    if (mine && g.phase === 'roll') {
-      kids.push(h('div', { class: 'actions' },
-        h('button', { class: 'primary big', onclick: () => send('rollDice') }, 'Roll the dice')));
-    }
-
-    if (mine && (g.phase === 'main' || g.phase === 'specialBuild')) {
-      const afford = cost => C.canAfford({ res: me.res }, cost);
-      const buildBtn = (mode, label, cost, legal) => h('button', {
-        class: ui.mode === mode ? 'active' : '',
-        disabled: !afford(cost) || !legal.length,
-        title: !afford(cost) ? 'Not enough resources' : !legal.length ? 'Nowhere to build' : '',
-        onclick: () => { ui.mode = ui.mode === mode ? null : mode; render(); },
-      }, h('span', {}, label), costLabel(cost));
-      kids.push(h('div', { class: 'actions grid' },
-        buildBtn('road', 'Road', COSTS.road, me.legal.roads),
-        buildBtn('settlement', 'Settlement', COSTS.settlement, me.legal.settlements),
-        buildBtn('city', 'City', COSTS.city, me.legal.cities),
-        h('button', {
-          disabled: !afford(COSTS.dev) || !g.devDeckCount,
-          title: !g.devDeckCount ? 'Deck is empty' : '',
-          onclick: () => send('buyDevCard'),
-        }, h('span', {}, `Development card`), costLabel(COSTS.dev)),
-      ));
-      kids.push(g.phase === 'specialBuild'
-        ? h('div', { class: 'actions' },
-          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'Done building'))
-        : h('div', { class: 'actions' },
-          h('button', { onclick: () => openTrade() }, 'Trade'),
-          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'End turn')));
-    }
 
     if (g.phase === 'over' && ui.hideResults) {
       kids.push(h('div', { class: 'actions' },
@@ -538,51 +526,129 @@
     panel.replaceChildren(...kids);
   }
 
-  function renderTradePanel(g, me) {
-    const panel = $('#trade-panel');
+  // Always-visible strip: build costs, dice, trade and end turn. Buttons light up when usable.
+  function renderActionBar(g, me) {
+    const bar = $('#action-bar');
+    const mine = !!me && me.index === g.current;
+    const building = mine && (g.phase === 'main' || g.phase === 'specialBuild');
+    const afford = cost => !!me && C.canAfford({ res: me.res }, cost);
+    const legal = me ? me.legal : { roads: [], settlements: [], cities: [] };
+    const why = (cost, spots) => !mine ? 'Not your turn'
+      : !building ? 'Not now'
+        : !afford(cost) ? 'Not enough resources'
+          : !spots ? 'Nowhere to build' : '';
+
+    const build = (mode, label, cost, spots) => {
+      const ok = building && afford(cost) && spots > 0;
+      return h('button', {
+        class: 'bar-item' + (ui.mode === mode ? ' active' : '') + (ok ? ' ready' : ''),
+        disabled: !ok, title: why(cost, spots),
+        onclick: () => { ui.mode = ui.mode === mode ? null : mode; render(); },
+      }, h('span', { class: 'bar-label' }, label), costLabel(cost));
+    };
+    const devOk = building && afford(COSTS.dev) && g.devDeckCount > 0;
+    const canRoll = mine && g.phase === 'roll';
+    const canTrade = mine && g.phase === 'main';
+    const special = mine && g.phase === 'specialBuild';
+
+    bar.replaceChildren(
+      h('button', {
+        class: 'bar-roll' + (canRoll ? ' ready' : ''), disabled: !canRoll,
+        title: canRoll ? 'Roll the dice (R)' : 'Not your roll', onclick: () => send('rollDice'),
+      }, h('span', { class: 'bar-dice' }, dieFace(5), dieFace(2, 'red')), h('span', { class: 'bar-label' }, 'Roll')),
+      h('div', { class: 'bar-builds' },
+        build('road', 'Road', COSTS.road, legal.roads.length),
+        build('settlement', 'Settlement', COSTS.settlement, legal.settlements.length),
+        build('city', 'City', COSTS.city, legal.cities.length),
+        h('button', {
+          class: 'bar-item' + (devOk ? ' ready' : ''), disabled: !devOk,
+          title: g.devDeckCount ? why(COSTS.dev, 1) || `${g.devDeckCount} left in the deck` : 'The deck is empty',
+          onclick: () => send('buyDevCard'),
+        }, h('span', { class: 'bar-label' }, 'Dev card', h('small', {}, g.devDeckCount)), costLabel(COSTS.dev)),
+      ),
+      h('button', {
+        class: 'bar-trade' + (canTrade ? ' ready' : ''), disabled: !canTrade,
+        title: canTrade ? 'Trade with the bank or other players (T)' : 'Trade on your turn, after rolling',
+        onclick: () => openTrade(),
+      }, icon('swap'), h('span', { class: 'bar-label' }, 'Trade')),
+      h('button', {
+        class: 'bar-end primary', disabled: !building,
+        title: building ? 'End your turn (E)' : '',
+        onclick: () => { ui.mode = null; send('endTurn'); },
+      }, special ? 'Done building' : 'End turn'),
+    );
+  }
+
+  function flash(key, title, text, ms) {
+    ui.flashes = ui.flashes.filter(f => f.key !== key);
+    ui.flashes.push({ key, title, text, until: Date.now() + (ms || 3500) });
+    setTimeout(() => { if (state.view && state.view.game) renderNotices(state.view.game, state.view.game.you); }, (ms || 3500) + 50);
+  }
+
+  function offerLines(l1, h1, l2, h2) {
+    return h('div', { class: 'offer' },
+      h('div', {}, h('span', { class: 'offer-label' }, l1), resList(h1)),
+      h('div', {}, h('span', { class: 'offer-label' }, l2), resList(h2)));
+  }
+
+  // Pop-up notices over the board: trade offers (with accept/decline) and short alerts.
+  function renderNotices(g, me) {
+    const box = $('#notices');
+    const notes = [];
     const t = g.trade;
-    if (!t || !me) { panel.hidden = true; return; }
-    panel.hidden = false;
-    const from = g.players[t.from];
-    if (t.from === me.index) {
-      const rows = g.players.flatMap((p, i) => {
-        if (i === me.index) return [];
-        const r = t.responses[i];
-        return h('div', { class: 'trade-row' },
-          h('span', { class: 'who' }, settlementIcon(p.color), p.name),
-          r === 'accept'
-            ? h('button', { class: 'primary small', onclick: () => send('confirmTrade', { with: i }) }, `Trade with ${p.name}`)
-            : h('span', { class: 'muted' }, r === 'decline' ? 'declined' : 'thinking…'));
-      });
-      panel.replaceChildren(
-        h('div', { class: 'panel-title' }, 'Your offer'),
-        h('div', { class: 'offer' },
-          h('div', {}, h('span', { class: 'offer-label' }, 'You give'), resList(t.give)),
-          h('div', {}, h('span', { class: 'offer-label' }, 'You get'), resList(t.get))),
-        ...rows,
-        h('div', { class: 'actions' }, h('button', { class: 'small', onclick: () => send('cancelTrade') }, 'Withdraw offer')),
-      );
-    } else {
-      const canPay = RESOURCES.every(r => me.res[r] >= t.get[r]);
-      const mine = t.responses[me.index];
-      panel.replaceChildren(
-        h('div', { class: 'panel-title' }, `${from.name} wants to trade`),
-        h('div', { class: 'offer' },
-          h('div', {}, h('span', { class: 'offer-label' }, 'You get'), resList(t.give)),
-          h('div', {}, h('span', { class: 'offer-label' }, 'You give'), resList(t.get))),
-        h('div', { class: 'actions' },
-          h('button', {
-            class: 'primary small' + (mine === 'accept' ? ' active' : ''), disabled: !canPay,
-            title: canPay ? '' : 'You don’t have those cards',
-            onclick: () => send('respondTrade', { accept: true }),
-          }, mine === 'accept' ? 'Accepted' : 'Accept'),
-          h('button', {
-            class: 'small' + (mine === 'decline' ? ' active' : ''),
-            onclick: () => send('respondTrade', { accept: false }),
-          }, mine === 'decline' ? 'Declined' : 'Decline'),
-        ),
-      );
+    if (t && me && g.phase === 'main') {
+      const key = `offer:${t.from}:${JSON.stringify(t.give)}:${JSON.stringify(t.get)}`;
+      if (t.from === me.index) {
+        const others = g.players.map((_, i) => i).filter(i => i !== me.index);
+        notes.push({
+          key, cls: 'own', body: [
+            h('div', { class: 'notice-head' }, 'Your offer',
+              h('button', { class: 'notice-x', title: 'Withdraw offer', onclick: () => send('cancelTrade') }, icon('cross'))),
+            offerLines('You give', t.give, 'You get', t.get),
+            h('div', { class: 'responses' }, others.map(i => {
+              const r = t.responses[i], p = g.players[i];
+              return h('div', { class: 'response ' + (r || 'waiting') },
+                settlementIcon(p.color), h('span', { class: 'rname' }, p.name),
+                r === 'accept'
+                  ? h('button', { class: 'take', onclick: () => send('confirmTrade', { with: i }) }, icon('check'), 'Trade')
+                  : h('span', { class: 'rstate' }, r === 'decline' ? 'declined' : 'deciding…'));
+            })),
+          ],
+        });
+      } else if (t.responses[me.index] !== 'decline') {
+        const from = g.players[t.from];
+        const accepted = t.responses[me.index] === 'accept';
+        const canPay = RESOURCES.every(r => me.res[r] >= t.get[r]);
+        notes.push({
+          key, cls: 'incoming', body: [
+            h('div', { class: 'notice-head' }, settlementIcon(from.color), `${from.name} offers a trade`),
+            offerLines('You get', t.give, 'You give', t.get),
+            h('div', { class: 'notice-actions' },
+              h('span', { class: 'notice-state' },
+                accepted ? `Accepted — waiting for ${from.name}` : canPay ? '' : 'You don’t have these cards'),
+              h('button', {
+                class: 'round decline', title: 'Decline', 'aria-label': 'Decline',
+                onclick: () => send('respondTrade', { accept: false }),
+              }, icon('cross')),
+              h('button', {
+                class: 'round accept', title: 'Accept', 'aria-label': 'Accept', disabled: !canPay || accepted,
+                onclick: () => send('respondTrade', { accept: true }),
+              }, icon('check'))),
+          ],
+        });
+      }
     }
+    const now = Date.now();
+    ui.flashes = ui.flashes.filter(f => f.until > now);
+    ui.flashes.forEach(f => notes.push({
+      key: f.key, cls: 'flash', body: [h('div', { class: 'notice-head' }, f.title), h('div', { class: 'notice-text' }, f.text)],
+    }));
+
+    box.replaceChildren(...notes.map(n => {
+      const fresh = !ui.seenNotices.has(n.key);
+      ui.seenNotices.add(n.key);
+      return h('div', { class: `notice ${n.cls}` + (fresh ? ' enter' : '') }, n.body);
+    }));
   }
 
   function renderHand(g, me) {
@@ -787,6 +853,19 @@
     ];
   }
 
+  // A real, freshly generated board for the landing and lobby screens, with the
+  // opening placements played out so it looks like a game in progress.
+  function renderArt() {
+    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+    const g = C.newGame(['a', 'b', 'c', 'd']);
+    while (g.phase === 'setup') {
+      C.placeSettlement(g, pick(C.legalSettlementSpots(g, g.current)));
+      C.placeRoad(g, pick(C.legalRoadSpots(g, g.current)));
+    }
+    const view = C.viewFor(g, null);
+    document.querySelectorAll('.art-board').forEach(el => renderBoard(view, null, el));
+  }
+
   // ---------- boot ----------
 
   function bindChat() {
@@ -816,11 +895,20 @@
       if (ev.target.id === 'modal' && ui.dialog) closeDialog();
     });
     document.addEventListener('keydown', ev => {
-      if (ev.key !== 'Escape') return;
-      if (ui.dialog) closeDialog();
-      else if (ui.mode) { ui.mode = null; render(); }
+      if (ev.key === 'Escape') {
+        if (ui.dialog) closeDialog();
+        else if (ui.mode) { ui.mode = null; render(); }
+        return;
+      }
+      // Shortcuts press the matching bar button, so they obey the same rules.
+      if (ev.metaKey || ev.ctrlKey || ev.altKey || /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+      if (!$('#modal').hidden) return;
+      const target = { r: '.bar-roll', t: '.bar-trade', e: '.bar-end' }[ev.key.toLowerCase()];
+      const btn = target && document.querySelector('#action-bar ' + target);
+      if (btn && !btn.disabled) { ev.preventDefault(); btn.click(); }
     });
     bindChat();
+    renderArt();
 
     $('#name').value = store.get('catan:name') || '';
     api('/api/info').then(d => { state.lanUrls = d.lanUrls || []; render(); }).catch(() => {});

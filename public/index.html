@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catan</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 2 2'><polygon fill='%23a4432a' points='0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 2 2'><polygon fill='%23901d27' stroke='%23f2c230' stroke-width='.14' points='0,-.92 .8,-.46 .8,.46 0,.92 -.8,.46 -.8,-.46'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@700;800&family=Alegreya:ital,wght@0,400;0,600;1,400&family=Alegreya+Sans:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,500;0,600;0,700;1,500&family=Open+Sans:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,10 +22,16 @@
       <rect x="1.5" y="15.7" width="10" height="4.8" rx=".7"/><rect x="12.5" y="15.7" width="10" height="4.8" rx=".7"/>
     </symbol>
     <symbol id="g-sheep" viewBox="0 0 24 24">
-      <circle cx="7" cy="12" r="4.2"/><circle cx="11.5" cy="9.2" r="4.4"/><circle cx="15.5" cy="11.6" r="4.2"/>
-      <circle cx="9.5" cy="14.6" r="3.8"/><circle cx="14" cy="15" r="3.6"/>
-      <ellipse cx="20.2" cy="9.6" rx="2.6" ry="3.3"/>
-      <rect x="8" y="16.5" width="1.9" height="5.5" rx=".8"/><rect x="14.2" y="16.5" width="1.9" height="5.5" rx=".8"/>
+      <!-- fleece -->
+      <circle cx="5.8" cy="11.6" r="3.4"/><circle cx="9.2" cy="8.9" r="3.7"/><circle cx="13" cy="8.7" r="3.5"/>
+      <circle cx="14.4" cy="12.4" r="3"/><circle cx="11" cy="14.4" r="3.4"/><circle cx="7.2" cy="14.6" r="3.2"/>
+      <circle cx="2.4" cy="10.4" r="1.4"/>
+      <!-- head, set apart from the fleece so it reads at small sizes -->
+      <ellipse cx="20.9" cy="10.6" rx="2.2" ry="3.1" transform="rotate(28 20.9 10.6)"/>
+      <ellipse cx="19.3" cy="7.3" rx="1.7" ry=".9" transform="rotate(-28 19.3 7.3)"/>
+      <!-- legs -->
+      <rect x="6.3" y="16.4" width="1.6" height="5.6" rx=".7"/><rect x="9.2" y="16.4" width="1.6" height="5.6" rx=".7"/>
+      <rect x="12.2" y="16.4" width="1.6" height="5.6" rx=".7"/><rect x="14.9" y="15.4" width="1.6" height="6.6" rx=".7"/>
     </symbol>
     <symbol id="g-wheat" viewBox="0 0 24 24">
       <rect x="11.3" y="7" width="1.4" height="16" rx=".7"/>
@@ -38,54 +44,73 @@
       <path d="M1.5 21 8.4 9.2l2.9 4.1L15.6 4 22.5 21z"/>
       <path d="M15.6 4 13.9 10.6l1.9-1.3 1.7 2.4z" fill-opacity=".35" style="fill:var(--glyph-shade,#000)"/>
     </symbol>
+    <symbol id="g-check" viewBox="0 0 24 24"><path d="M4.5 12.5 9.6 17.6 19.5 6.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-cross" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+    <symbol id="g-swap" viewBox="0 0 24 24"><path d="M3.5 8.5h15M14.5 4.5l4 4-4 4M20.5 15.5h-15M9.5 11.5l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-hex" viewBox="-1 -1 2 2"><polygon points="0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5"/></symbol>
   </svg>
 
   <section id="home" class="screen landing" hidden>
-    <div class="parchment home-card">
-      <svg class="logo" viewBox="-3.2 -3.2 6.4 6.4" aria-hidden="true">
-        <polygon class="logo-hex" fill="#e2cd97" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#3f7a3a" transform="translate(1.732 0)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#b5532f" transform="translate(0.866 1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#93b95a" transform="translate(-0.866 1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#dfb03c" transform="translate(-1.732 0)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#7d8591" transform="translate(-0.866 -1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-        <polygon class="logo-hex" fill="#2f6a35" transform="translate(0.866 -1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
-      </svg>
-      <h1>Catan</h1>
-      <p class="tagline">Gather, build and trade your way to ten points.</p>
-      <p class="meta">2–6 players · everyone on their own device</p>
-
-      <label class="field">
-        <span class="field-label">Your name</span>
-        <input id="name" maxlength="20" placeholder="What should the table call you?" autocomplete="nickname">
-      </label>
-      <button id="create" class="primary big">Found a new game</button>
-      <div class="divider"><span>or join a friend’s game</span></div>
-      <form id="join-form" class="join-row">
-        <input id="join-code" maxlength="4" placeholder="CODE" autocapitalize="characters" spellcheck="false" aria-label="Game code">
-        <button type="submit">Join</button>
-      </form>
+    <div class="landing-art" aria-hidden="true"><svg class="art-board"></svg></div>
+    <div class="landing-panel">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="-1.05 -1.05 2.1 2.1" aria-hidden="true">
+          <polygon points="0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5"/>
+          <polygon class="inner" points="0,-.62 .537,-.31 .537,.31 0,.62 -.537,.31 -.537,-.31"/>
+        </svg>
+        <span class="brand-name">Catan</span>
+      </div>
+      <div class="landing-body">
+        <h1>Play Catan with friends</h1>
+        <p class="lede">Start a table, share the code, and play together, each on your own device.</p>
+        <label class="field">
+          <span class="field-label">Your name</span>
+          <input id="name" maxlength="20" placeholder="Enter your name" autocomplete="nickname">
+        </label>
+        <button id="create" class="primary big">Create game</button>
+        <div class="divider"><span>or join with a code</span></div>
+        <form id="join-form" class="join-row">
+          <input id="join-code" maxlength="4" placeholder="ABCD" autocapitalize="characters" spellcheck="false" aria-label="Game code">
+          <button type="submit">Join game</button>
+        </form>
+        <ul class="facts">
+          <li><b>2–6</b> players</li>
+          <li><b>Base</b> and 5–6 player rules</li>
+          <li><b>No</b> sign-up</li>
+        </ul>
+      </div>
+      <footer class="landing-foot">A fan-made table for personal play. Catan is a trademark of Catan GmbH.</footer>
     </div>
   </section>
 
   <section id="lobby" class="screen landing" hidden>
-    <div class="parchment lobby-card">
-      <div class="section-title">Game code</div>
-      <div id="room-code" class="room-code" aria-live="polite"></div>
-      <div class="share">
-        <input id="share-link" readonly aria-label="Invite link">
-        <button id="copy-link">Copy link</button>
+    <div class="landing-art" aria-hidden="true"><svg class="art-board"></svg></div>
+    <div class="landing-panel">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="-1.05 -1.05 2.1 2.1" aria-hidden="true">
+          <polygon points="0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5"/>
+          <polygon class="inner" points="0,-.62 .537,-.31 .537,.31 0,.62 -.537,.31 -.537,-.31"/>
+        </svg>
+        <span class="brand-name">Catan</span>
       </div>
-      <p id="share-hint" class="hint"></p>
+      <div class="landing-body lobby-body">
+        <div class="field-label">Game code</div>
+        <div id="room-code" class="room-code" aria-live="polite"></div>
+        <div class="share">
+          <input id="share-link" readonly aria-label="Invite link">
+          <button id="copy-link">Copy link</button>
+        </div>
+        <p id="share-hint" class="hint"></p>
 
-      <div class="section-title">Players <span id="member-count"></span></div>
-      <ul id="members"></ul>
-      <div id="lobby-actions"></div>
+        <div class="section-title">Players <span id="member-count"></span></div>
+        <ul id="members"></ul>
+        <div id="lobby-actions"></div>
 
-      <div class="section-title">Table talk</div>
-      <div class="chat">
-        <div class="chat-list"></div>
-        <form class="chat-form"><input maxlength="300" placeholder="Say hello…"><button>Send</button></form>
+        <div class="section-title">Chat</div>
+        <div class="chat">
+          <div class="chat-list"></div>
+          <form class="chat-form"><input maxlength="300" placeholder="Say hello…"><button>Send</button></form>
+        </div>
       </div>
     </div>
   </section>
@@ -94,19 +119,26 @@
     <div id="board-wrap">
       <svg id="board" viewBox="-335 -295 670 590" aria-label="Game board"></svg>
       <div id="dice"></div>
+      <div id="notices" aria-live="polite"></div>
       <div id="conn" hidden>Reconnecting…</div>
     </div>
+    <nav id="action-bar" aria-label="Actions"></nav>
     <aside id="side">
-      <header class="game-head"><span class="wordmark">Catan</span><span id="game-code" class="muted"></span></header>
+      <header class="game-head">
+        <svg class="brand-mark" viewBox="-1.05 -1.05 2.1 2.1" aria-hidden="true">
+          <polygon points="0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5"/>
+          <polygon class="inner" points="0,-.62 .537,-.31 .537,.31 0,.62 -.537,.31 -.537,-.31"/>
+        </svg>
+        <span class="brand-name">Catan</span><span id="game-code"></span>
+      </header>
       <div id="players"></div>
       <div id="turn" class="panel"></div>
-      <div id="trade-panel" class="panel" hidden></div>
       <div id="hand" class="panel"></div>
       <div class="panel log-panel"><div class="panel-title">Game log</div><div id="log"></div></div>
       <div class="panel chat">
         <div class="panel-title">Chat</div>
         <div class="chat-list"></div>
-        <form class="chat-form"><input maxlength="300" placeholder="Negotiate a trade…"><button>Send</button></form>
+        <form class="chat-form"><input maxlength="300" placeholder="Message the table…"><button>Send</button></form>
       </div>
     </aside>
   </section>
