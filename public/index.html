@@ -9,6 +9,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,500;0,600;0,700;1,500&family=Open+Sans:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Set the theme before first paint: saved choice, else the system preference.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('catan:theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
 </head>
 <body>
   <!-- Resource glyphs, drawn on a 24×24 grid and reused everywhere via <use>. -->
@@ -47,6 +56,8 @@
     <symbol id="g-check" viewBox="0 0 24 24"><path d="M4.5 12.5 9.6 17.6 19.5 6.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="g-cross" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
     <symbol id="g-swap" viewBox="0 0 24 24"><path d="M3.5 8.5h15M14.5 4.5l4 4-4 4M20.5 15.5h-15M9.5 11.5l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="g-sun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></g></symbol>
+    <symbol id="g-moon" viewBox="0 0 24 24"><path d="M20.2 14.6A8.4 8.4 0 0 1 9.4 3.8a8.4 8.4 0 1 0 10.8 10.8z"/></symbol>
     <symbol id="g-hex" viewBox="-1 -1 2 2"><polygon points="0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5"/></symbol>
   </svg>
 

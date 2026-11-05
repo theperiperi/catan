@@ -866,6 +866,32 @@
     document.querySelectorAll('.art-board').forEach(el => renderBoard(view, null, el));
   }
 
+  // ---------- theme ----------
+
+  function setTheme(theme, save) {
+    document.documentElement.dataset.theme = theme;
+    if (save) store.set('catan:theme', theme);
+    document.querySelectorAll('.theme-toggle').forEach(b => {
+      b.setAttribute('aria-checked', String(theme === 'dark'));
+      b.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    });
+  }
+
+  // A sun/moon switch at the top of every screen.
+  function mountThemeToggles() {
+    document.querySelectorAll('.brand, .game-head').forEach(host => {
+      host.append(h('button', {
+        class: 'theme-toggle', role: 'switch', 'aria-label': 'Dark mode',
+        onclick: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true),
+      }, h('span', { class: 'tt-track' }, icon('sun'), icon('moon'), h('span', { class: 'tt-knob' }))));
+    });
+    setTheme(document.documentElement.dataset.theme || 'light', false);
+    // Follow the system setting until the player picks one.
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!store.get('catan:theme')) setTheme(e.matches ? 'dark' : 'light', false);
+    });
+  }
+
   // ---------- boot ----------
 
   function bindChat() {
@@ -908,6 +934,7 @@
       if (btn && !btn.disabled) { ev.preventDefault(); btn.click(); }
     });
     bindChat();
+    mountThemeToggles();
     renderArt();
 
     $('#name').value = store.get('catan:name') || '';
