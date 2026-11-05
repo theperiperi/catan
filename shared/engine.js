@@ -8,7 +8,6 @@
   'use strict';
 
   const RESOURCES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
-  const RES_ICON = { wood: '🌲', brick: '🧱', sheep: '🐑', wheat: '🌾', ore: '🪨', desert: '🏜️' };
   const RES_NAME = { wood: 'Wood', brick: 'Brick', sheep: 'Sheep', wheat: 'Wheat', ore: 'Ore' };
   const COSTS = {
     road: { wood: 1, brick: 1 },
@@ -107,8 +106,11 @@
     return k;
   }
 
+  // Messages mark resources as {wood}, {ore}, …; the client draws them as glyphs.
+  function tok(r) { return `{${r}}`; }
+
   function fmtRes(h) {
-    const parts = RESOURCES.filter(r => h[r]).map(r => `${h[r]} ${RES_ICON[r]}`);
+    const parts = RESOURCES.filter(r => h[r]).map(r => `${h[r]} ${tok(r)}`);
     return parts.length ? parts.join(' ') : 'nothing';
   }
 
@@ -373,7 +375,7 @@
       g.phase = 'over';
       g.winner = g.current;
       g.trade = null;
-      log(g, `🏆 ${g.players[g.current].name} wins with ${victoryPoints(g, g.current, true)} points!`, g.current);
+      log(g, `${g.players[g.current].name} wins with ${victoryPoints(g, g.current, true)} points!`, g.current);
     }
   }
 
@@ -510,7 +512,7 @@
       if (total <= g.bank[r] || recipients === 1) {
         d.forEach((x, i) => { if (x) gains[i][r] += take(g, g.players[i], r, x); });
       } else {
-        log(g, `The bank is short on ${RES_ICON[r]}, so nobody gets any.`);
+        log(g, `The bank is short on ${tok(r)}, so nobody gets any.`);
       }
     });
     let any = false;
@@ -559,7 +561,7 @@
     v.res[r]--;
     thief.res[r]++;
     log(g, `${thief.name} stole a card from ${v.name}.`, g.current,
-      { to: [g.current, victim], text: `${thief.name} stole ${RES_ICON[r]} from ${v.name}.` });
+      { to: [g.current, victim], text: `${thief.name} stole ${tok(r)} from ${v.name}.` });
     g.stealCandidates = [];
     g.phase = g.afterRobber;
   }
@@ -619,7 +621,7 @@
           q.res[r] = 0;
         });
         p.res[r] += total;
-        log(g, `${p.name} played ${name} and took all ${total} ${RES_ICON[r]}.`, pi);
+        log(g, `${p.name} played ${name} and took all ${total} ${tok(r)}.`, pi);
         break;
       }
     }
@@ -631,13 +633,13 @@
     const pi = g.current, p = g.players[pi];
     if (!RESOURCES.includes(give) || !RESOURCES.includes(get) || give === get) fail('Pick two different resources.');
     const rate = bankRate(g, pi, give);
-    if (p.res[give] < rate) fail(`You need ${rate} ${RES_ICON[give]}.`);
+    if (p.res[give] < rate) fail(`You need ${rate} ${tok(give)}.`);
     if (g.bank[get] < 1) fail('The bank is out of that resource.');
     p.res[give] -= rate;
     g.bank[give] += rate;
     p.res[get]++;
     g.bank[get]--;
-    log(g, `${p.name} traded ${rate} ${RES_ICON[give]} for 1 ${RES_ICON[get]} with the bank.`, pi);
+    log(g, `${p.name} traded ${rate} ${tok(give)} for 1 ${tok(get)} with the bank.`, pi);
   }
 
   function hasCards(p, h) { return RESOURCES.every(r => p.res[r] >= (h[r] || 0)); }
@@ -786,7 +788,7 @@
   }
 
   return {
-    RESOURCES, RES_ICON, RES_NAME, COSTS, PIPS, DEV_INFO, PLAYER_COLORS, WIN_POINTS, MIN_PLAYERS, MAX_PLAYERS,
+    RESOURCES, RES_NAME, COSTS, PIPS, DEV_INFO, PLAYER_COLORS, WIN_POINTS, MIN_PLAYERS, MAX_PLAYERS,
     RuleError, cleanHand, countHand, totalCards, canAfford, fmtRes,
     newGame, isVertexOpen, legalSettlementSpots, legalCitySpots, legalRoadSpots, bankRate, playableDev,
     longestRoadFor, victoryPoints,

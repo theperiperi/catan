@@ -2,10 +2,10 @@
   'use strict';
 
   const C = window.Catan;
-  const { RESOURCES, RES_ICON, RES_NAME, COSTS, PIPS, DEV_INFO } = C;
+  const { RESOURCES, RES_NAME, COSTS, PIPS, DEV_INFO } = C;
   const S = 60; // pixels per hex radius
   const TILE_COLORS = {
-    wood: '#3d8a45', brick: '#c2623a', sheep: '#9dcb5b', wheat: '#e6c24a', ore: '#8f949d', desert: '#d9c593',
+    wood: '#3c6e3a', brick: '#a8502f', sheep: '#8fae55', wheat: '#d4a53a', ore: '#79808a', desert: '#d8c38e',
   };
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const $ = sel => document.querySelector(sel);
@@ -67,18 +67,43 @@
   let toastTimer = null;
   function toast(msg) {
     const t = $('#toast');
-    t.textContent = msg;
+    t.replaceChildren(...richText(msg));
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
   }
 
+  // A resource glyph from the sprite in index.html.
+  function glyph(r) {
+    const el = svg('svg', { class: 'glyph', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+    svg('use', { href: `#g-${r}` }, el);
+    return el;
+  }
+
+  // A small hexagonal chip in the resource's colour.
+  function chip(r) {
+    return h('span', { class: `chip ${r}`, title: RES_NAME[r] }, glyph(r));
+  }
+
   function resList(hand) {
-    return RESOURCES.filter(r => hand[r]).map(r => `${hand[r]}${RES_ICON[r]}`).join(' ') || '—';
+    const parts = RESOURCES.filter(r => hand[r]).map(r =>
+      h('span', { class: 'res-group' }, h('span', { class: 'qty' }, hand[r]), chip(r)));
+    return parts.length ? parts : ['—'];
   }
 
   function costLabel(cost) {
-    return Object.entries(cost).map(([r, n]) => RES_ICON[r].repeat(n)).join('');
+    return h('span', { class: 'cost' }, Object.entries(cost).flatMap(([r, n]) => Array.from({ length: n }, () => chip(r))));
+  }
+
+  // Server messages mark resources as {wood}, {ore}, …
+  function richText(text) {
+    return String(text).split(/\{(wood|brick|sheep|wheat|ore)\}/).map((part, i) => (i % 2 ? chip(part) : part));
+  }
+
+  function settlementIcon(color) {
+    const icon = svg('svg', { viewBox: '-11 -13 22 23', class: 'settlement-icon', 'aria-hidden': 'true' });
+    svg('polygon', { points: '-9,8 9,8 9,-3 0,-11 -9,-3', fill: color }, icon);
+    return icon;
   }
 
   // ---------- networking ----------
@@ -228,24 +253,13 @@
     }
   }
 
-  function settlementIcon(color) {
-    const icon = svg('svg', { viewBox: '-11 -13 22 23', class: 'settlement-icon', 'aria-hidden': 'true' });
-    svg('polygon', { points: '-9,8 9,8 9,-3 0,-11 -9,-3', fill: color }, icon);
-    return icon;
-  }
-
   function renderChat(v) {
     document.querySelectorAll('.chat-list').forEach(list => {
       const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 30;
       list.replaceChildren(...v.chat.map(m => h('div', { class: 'chat-line' },
-        h('b', { style: `--pc:${chatColor(v, m.pi)}` }, m.name + ': '), m.text)));
+        h('b', {}, m.name + ': '), m.text)));
       if (atBottom) list.scrollTop = list.scrollHeight;
     });
-  }
-
-  function chatColor(v, pi) {
-    const c = v.members[pi] && v.members[pi].color;
-    return c === '#f2f2f2' ? '#d8dde6' : c;
   }
 
   function renderGame(v) {
@@ -257,6 +271,7 @@
       if (ui.dialog === 'trade' || ui.dialog === 'yearOfPlenty' || ui.dialog === 'monopoly') ui.dialog = null;
     }
     if (g.phase !== 'over') ui.hideResults = false;
+    $('#game-code').textContent = `Game ${v.code}`;
     renderBoard(g, me);
     renderDice(g);
     renderPlayers(v, g, me);
@@ -283,8 +298,11 @@
     const pad = 2.15;
     const minX = (Math.min(...xs) - pad) * S, minY = (Math.min(...ys) - pad) * S;
     root.setAttribute('viewBox', `${minX} ${minY} ${(Math.max(...xs) + pad) * S - minX} ${(Math.max(...ys) + pad) * S - minY}`);
-    const sea = svg('g', { class: 'sea' }, root);
-    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 1.95 * S, 30) }, sea));
+    // Shallow water and a sandy shore follow the coastline.
+    const shallows = svg('g', { class: 'shallows' }, root);
+    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 1.75 * S, 30) }, shallows));
+    const beach = svg('g', { class: 'beach' }, root);
+    g.tiles.forEach(t => svg('polygon', { points: hexPoints(t.x * S, t.y * S, 1.1 * S, 30) }, beach));
 
     // ports
     g.ports.forEach(pt => {
@@ -294,15 +312,19 @@
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const len = Math.hypot(mx - T.x, my - T.y);
       const px = (mx + ((mx - T.x) / len) * 0.62) * S, py = (my + ((my - T.y) / len) * 0.62) * S;
-      [a, b].forEach(V => svg('line', { x1: V.x * S, y1: V.y * S, x2: px, y2: py, class: 'dock' }, root));
+      [a, b].forEach(V => {
+        svg('line', { x1: V.x * S, y1: V.y * S, x2: px, y2: py, class: 'dock' }, root);
+        svg('line', { x1: V.x * S, y1: V.y * S, x2: px, y2: py, class: 'dock-light' }, root);
+      });
       const grp = svg('g', { class: 'port' }, root);
       svg('title', {}, grp).textContent = pt.type === 'any' ? 'Port: trade 3 of any one resource for 1' : `Port: trade 2 ${RES_NAME[pt.type]} for 1`;
-      svg('circle', { cx: px, cy: py, r: 19 }, grp);
+      svg('circle', { cx: px, cy: py, r: 19, class: 'disc' }, grp);
       if (pt.type === 'any') {
-        svgText(grp, px, py + 4, '3:1', 'port-ratio');
+        svgText(grp, px, py + 4.5, '3:1', 'port-ratio');
       } else {
-        svgText(grp, px, py - 2, RES_ICON[pt.type], 'port-icon');
-        svgText(grp, px, py + 13, '2:1', 'port-ratio small');
+        svg('polygon', { points: hexPoints(px, py - 4.5, 9, 30), fill: TILE_COLORS[pt.type] }, grp);
+        svg('use', { href: `#g-${pt.type}`, x: px - 5.5, y: py - 10, width: 11, height: 11, class: 'port-glyph' }, grp);
+        svgText(grp, px, py + 14, '2:1', 'port-ratio small');
       }
     });
 
@@ -311,12 +333,16 @@
     g.tiles.forEach((T, ti) => {
       const cx = T.x * S, cy = T.y * S;
       const hit = sum && sum !== 7 && g.phase !== 'roll' && T.number === sum && ti !== g.robber;
-      const grp = svg('g', { class: 'tile' + (hit ? ' hit' : '') }, root);
+      const grp = svg('g', { class: `tile ${T.resource}` + (hit ? ' hit' : '') }, root);
       const pts = T.verts.map(v => `${g.vertices[v].x * S},${g.vertices[v].y * S}`).join(' ');
       svg('polygon', { points: pts, fill: TILE_COLORS[T.resource], class: 'hex' }, grp);
-      svgText(grp, cx, cy - 22, RES_ICON[T.resource], 'tile-icon');
+      svg('polygon', { points: hexPoints(cx, cy, 0.86 * S, 30), class: 'hex-inner' }, grp);
+      if (T.resource !== 'desert') {
+        svg('use', { href: `#g-${T.resource}`, x: cx - 15, y: cy - 44, width: 30, height: 30, class: 'tile-glyph' }, grp);
+      }
       if (T.number) {
         const red = T.number === 6 || T.number === 8;
+        svg('circle', { cx, cy: cy + 16, r: 17, class: 'token-shadow' }, grp);
         svg('circle', { cx, cy: cy + 14, r: 17, class: 'token' }, grp);
         svgText(grp, cx, cy + 19, T.number, 'token-num' + (red ? ' red' : ''));
         const pips = PIPS[T.number];
@@ -329,9 +355,9 @@
     // robber
     const RT = g.tiles[g.robber];
     const rx = RT.x * S + (RT.number ? 30 : 0), ry = RT.y * S + 10;
-    const robber = svg('g', { class: 'robber' }, root);
-    svg('ellipse', { cx: rx, cy: ry + 6, rx: 9, ry: 12 }, robber);
-    svg('circle', { cx: rx, cy: ry - 9, r: 6.5 }, robber);
+    const robber = svg('g', { class: 'robber', transform: `translate(${rx},${ry})` }, root);
+    svg('path', { class: 'body', d: 'M-10 17 Q-10 10 -6 8 Q-9 3 -7 -2 Q-5 -6 -3.5 -7 A6.5 6.5 0 1 1 3.5 -7 Q5 -6 7 -2 Q9 3 6 8 Q10 10 10 17 Z' }, robber);
+    svg('ellipse', { class: 'shine', cx: -2.5, cy: -12, rx: 2, ry: 2.6 }, robber);
 
     // roads
     g.edges.forEach(E => {
@@ -397,10 +423,12 @@
   function renderDice(g) {
     const el = $('#dice');
     if (!g.dice) { el.replaceChildren(); return; }
-    const faces = '⚀⚁⚂⚃⚄⚅';
+    const PIP_CELLS = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+    const die = (n, cls) => h('span', { class: 'die' + (cls || ''), 'aria-label': String(n) },
+      Array.from({ length: 9 }, (_, i) => h('i', { class: PIP_CELLS[n].includes(i) ? 'on' : '' })));
     el.replaceChildren(
-      h('span', { class: 'die' }, faces[g.dice[0] - 1]),
-      h('span', { class: 'die' }, faces[g.dice[1] - 1]),
+      die(g.dice[0]),
+      die(g.dice[1], ' red'),
       h('span', { class: 'dice-sum' + (g.dice[0] + g.dice[1] === 7 ? ' seven' : '') }, g.dice[0] + g.dice[1]),
     );
   }
@@ -408,23 +436,27 @@
   // ---------- sidebar ----------
 
   function renderPlayers(v, g, me) {
-    $('#players').replaceChildren(...g.players.map((p, i) => {
+    const list = $('#players');
+    list.className = 'panel' + (g.players.length > 4 ? ' compact' : '');
+    const stat = (n, label, title) => h('span', { title }, h('b', {}, n), ` ${label}`);
+    list.replaceChildren(...g.players.map((p, i) => {
       const isMe = me && me.index === i;
       const vp = isMe ? me.vp : p.vp;
-      return h('div', { class: 'player' + (i === g.current ? ' current' : ''), style: `--pc:${p.color}` },
+      return h('div', { class: 'player' + (i === g.current ? ' current' : '') },
+        settlementIcon(p.color),
         h('div', { class: 'player-top' },
-          h('span', { class: 'swatch' }),
           h('span', { class: 'pname' }, p.name),
           isMe && h('span', { class: 'tag' }, 'you'),
-          !v.members[i].connected && h('span', { class: 'tag warn' }, 'offline'),
+          !v.members[i].connected && h('span', { class: 'tag warn' }, 'away'),
           g.discards[i] !== undefined && h('span', { class: 'tag warn' }, `discarding ${g.discards[i]}`),
-          h('span', { class: 'vp', title: isMe ? 'Includes your hidden VP cards' : 'Visible points' }, `${vp} VP`),
         ),
+        h('div', { class: 'vp', title: isMe ? 'Includes your hidden victory point cards' : 'Visible points' },
+          vp, h('small', {}, 'points')),
         h('div', { class: 'player-stats' },
-          h('span', { title: 'Resource cards' }, `🃏 ${p.cards}`),
-          h('span', { title: 'Development cards' }, `📜 ${p.devCards}`),
-          h('span', { title: 'Knights played' }, `⚔️ ${p.knights}`),
-          h('span', { title: 'Longest road' }, `🛣️ ${p.roadLength}`),
+          stat(p.cards, p.cards === 1 ? 'card' : 'cards', 'Resource cards'),
+          stat(p.devCards, 'dev', 'Development cards'),
+          stat(p.knights, p.knights === 1 ? 'knight' : 'knights', 'Knights played'),
+          stat(p.roadLength, 'road', 'Longest continuous road'),
           g.longestRoadHolder === i && h('span', { class: 'badge' }, 'Longest Road'),
           g.largestArmyHolder === i && h('span', { class: 'badge' }, 'Largest Army'),
         ),
@@ -470,7 +502,7 @@
 
     if (mine && g.phase === 'roll') {
       kids.push(h('div', { class: 'actions' },
-        h('button', { class: 'primary big', onclick: () => send('rollDice') }, '🎲 Roll dice')));
+        h('button', { class: 'primary big', onclick: () => send('rollDice') }, 'Roll the dice')));
     }
 
     if (mine && (g.phase === 'main' || g.phase === 'specialBuild')) {
@@ -480,7 +512,7 @@
         disabled: !afford(cost) || !legal.length,
         title: !afford(cost) ? 'Not enough resources' : !legal.length ? 'Nowhere to build' : '',
         onclick: () => { ui.mode = ui.mode === mode ? null : mode; render(); },
-      }, h('span', {}, label), h('span', { class: 'cost' }, costLabel(cost)));
+      }, h('span', {}, label), costLabel(cost));
       kids.push(h('div', { class: 'actions grid' },
         buildBtn('road', 'Road', COSTS.road, me.legal.roads),
         buildBtn('settlement', 'Settlement', COSTS.settlement, me.legal.settlements),
@@ -489,14 +521,14 @@
           disabled: !afford(COSTS.dev) || !g.devDeckCount,
           title: !g.devDeckCount ? 'Deck is empty' : '',
           onclick: () => send('buyDevCard'),
-        }, h('span', {}, `Dev card (${g.devDeckCount})`), h('span', { class: 'cost' }, costLabel(COSTS.dev))),
+        }, h('span', {}, `Development card`), costLabel(COSTS.dev)),
       ));
       kids.push(g.phase === 'specialBuild'
         ? h('div', { class: 'actions' },
-          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'Done building ➜'))
+          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'Done building'))
         : h('div', { class: 'actions' },
-          h('button', { onclick: () => openTrade() }, '🤝 Trade'),
-          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'End turn ➜')));
+          h('button', { onclick: () => openTrade() }, 'Trade'),
+          h('button', { class: 'primary', onclick: () => { ui.mode = null; send('endTurn'); } }, 'End turn')));
     }
 
     if (g.phase === 'over' && ui.hideResults) {
@@ -513,18 +545,20 @@
     panel.hidden = false;
     const from = g.players[t.from];
     if (t.from === me.index) {
-      const rows = g.players.map((p, i) => {
-        if (i === me.index) return null;
+      const rows = g.players.flatMap((p, i) => {
+        if (i === me.index) return [];
         const r = t.responses[i];
         return h('div', { class: 'trade-row' },
-          h('span', { style: `color:${p.color === '#f2f2f2' ? 'inherit' : p.color}` }, p.name),
+          h('span', { class: 'who' }, settlementIcon(p.color), p.name),
           r === 'accept'
             ? h('button', { class: 'primary small', onclick: () => send('confirmTrade', { with: i }) }, `Trade with ${p.name}`)
             : h('span', { class: 'muted' }, r === 'decline' ? 'declined' : 'thinking…'));
       });
       panel.replaceChildren(
         h('div', { class: 'panel-title' }, 'Your offer'),
-        h('div', { class: 'offer' }, h('span', {}, `Give ${resList(t.give)}`), h('span', {}, `Get ${resList(t.get)}`)),
+        h('div', { class: 'offer' },
+          h('div', {}, h('span', { class: 'offer-label' }, 'You give'), resList(t.give)),
+          h('div', {}, h('span', { class: 'offer-label' }, 'You get'), resList(t.get))),
         ...rows,
         h('div', { class: 'actions' }, h('button', { class: 'small', onclick: () => send('cancelTrade') }, 'Withdraw offer')),
       );
@@ -533,13 +567,15 @@
       const mine = t.responses[me.index];
       panel.replaceChildren(
         h('div', { class: 'panel-title' }, `${from.name} wants to trade`),
-        h('div', { class: 'offer' }, h('span', {}, `You get ${resList(t.give)}`), h('span', {}, `You give ${resList(t.get)}`)),
+        h('div', { class: 'offer' },
+          h('div', {}, h('span', { class: 'offer-label' }, 'You get'), resList(t.give)),
+          h('div', {}, h('span', { class: 'offer-label' }, 'You give'), resList(t.get))),
         h('div', { class: 'actions' },
           h('button', {
             class: 'primary small' + (mine === 'accept' ? ' active' : ''), disabled: !canPay,
             title: canPay ? '' : 'You don’t have those cards',
             onclick: () => send('respondTrade', { accept: true }),
-          }, mine === 'accept' ? 'Accepted ✓' : 'Accept'),
+          }, mine === 'accept' ? 'Accepted' : 'Accept'),
           h('button', {
             class: 'small' + (mine === 'decline' ? ' active' : ''),
             onclick: () => send('respondTrade', { accept: false }),
@@ -555,8 +591,8 @@
       panel.replaceChildren(h('div', { class: 'panel-title' }, 'Spectating'));
       return;
     }
-    const cards = RESOURCES.map(r => h('div', { class: `res-card res-${r}`, title: RES_NAME[r] },
-      h('span', { class: 'res-icon' }, RES_ICON[r]), h('span', { class: 'res-count' }, me.res[r])));
+    const cards = RESOURCES.map(r => h('div', { class: `res-card ${r}` + (me.res[r] ? '' : ' empty'), title: RES_NAME[r] },
+      glyph(r), h('span', { class: 'res-count' }, me.res[r]), h('span', { class: 'res-name' }, RES_NAME[r])));
 
     const groups = {};
     me.dev.forEach(c => {
@@ -566,18 +602,20 @@
     });
     const devs = Object.entries(groups).map(([type, info]) => {
       const playable = me.legal.devs.includes(type);
-      return h('div', { class: 'dev-card', title: DEV_INFO[type].text },
-        h('span', { class: 'dev-name' }, `${DEV_INFO[type].name}${info.total > 1 ? ` ×${info.total}` : ''}`),
-        info.fresh > 0 && type !== 'victoryPoint' && h('span', { class: 'tag' }, info.fresh === info.total ? 'new' : `${info.fresh} new`),
-        playable && h('button', { class: 'small', onclick: () => playDev(type) }, 'Play'));
+      return h('div', { class: 'dev-card' },
+        h('span', { class: 'dev-name' }, `${DEV_INFO[type].name}${info.total > 1 ? ` ×${info.total}` : ''}`,
+          info.fresh > 0 && type !== 'victoryPoint' && h('span', { class: 'tag' }, info.fresh === info.total ? 'new' : `${info.fresh} new`)),
+        h('span', { class: 'dev-side' },
+          playable && h('button', { class: 'small', onclick: () => playDev(type) }, 'Play')),
+        h('span', { class: 'dev-text' }, DEV_INFO[type].text));
     });
 
     const p = g.players[me.index];
     panel.replaceChildren(
       h('div', { class: 'panel-title' }, 'Your hand'),
       h('div', { class: 'res-cards' }, cards),
-      devs.length ? h('div', { class: 'dev-cards' }, devs) : null,
-      h('div', { class: 'pieces muted' }, `Pieces left: ${p.roadsLeft} roads · ${p.settlementsLeft} settlements · ${p.citiesLeft} cities`),
+      ...(devs.length ? [h('div', { class: 'dev-cards' }, devs)] : []),
+      h('div', { class: 'pieces' }, `In reserve: ${p.roadsLeft} roads · ${p.settlementsLeft} settlements · ${p.citiesLeft} cities`),
     );
   }
 
@@ -590,9 +628,13 @@
   function renderLog(g) {
     const el = $('#log');
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
-    el.replaceChildren(...g.log.map(e => h('div', {
-      class: 'log-line', style: e.pi !== null ? `--pc:${g.players[e.pi].color}` : '',
-    }, e.text)));
+    el.replaceChildren(...g.log.map(e => {
+      const turn = /^— .* —$/.test(e.text);
+      return h('div', {
+        class: 'log-line' + (turn ? ' turn' : ''),
+        style: e.pi !== null && !turn ? `--pc:${g.players[e.pi].color}` : '',
+      }, ...richText(turn ? e.text.slice(2, -2) : e.text));
+    }));
     if (atBottom) el.scrollTop = el.scrollHeight;
   }
 
@@ -610,7 +652,8 @@
 
   function stepper(hand, r, max, onChange) {
     return h('div', { class: 'stepper' },
-      h('span', { class: 'res-icon', title: RES_NAME[r] }, RES_ICON[r]),
+      chip(r),
+      h('span', { class: 'label' }, RES_NAME[r]),
       h('button', { class: 'small', disabled: hand[r] <= 0, onclick: () => { hand[r]--; onChange(); } }, '−'),
       h('span', { class: 'count' }, hand[r]),
       h('button', { class: 'small', disabled: hand[r] >= max, onclick: () => { hand[r]++; onChange(); } }, '+'));
@@ -661,7 +704,7 @@
         h('p', {}, 'Every other player gives you all of one resource.'),
         h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
           onclick: () => { ui.dialog = null; send('playDev', { card: 'monopoly', resource: r }); },
-        }, `${RES_ICON[r]} ${RES_NAME[r]}`))),
+        }, chip(r), RES_NAME[r]))),
         h('div', { class: 'actions' }, h('button', { onclick: closeDialog }, 'Cancel')),
       ];
     }
@@ -695,18 +738,18 @@
       h('h2', {}, 'Trade'),
       h('div', { class: 'trade-section' },
         h('div', { class: 'panel-title' }, 'With the bank'),
-        h('div', { class: 'muted' }, 'Give'),
+        h('div', { class: 'sub-label' }, 'Give'),
         h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
           class: 'small' + (ui.bankGive === r ? ' active' : ''),
           disabled: me.res[r] < me.rates[r],
           onclick: () => { ui.bankGive = r; rerender(); },
-        }, `${me.rates[r]} ${RES_ICON[r]}`))),
-        h('div', { class: 'muted' }, 'Get'),
+        }, `${me.rates[r]}`, chip(r)))),
+        h('div', { class: 'sub-label' }, 'Get'),
         h('div', { class: 'actions wrap' }, RESOURCES.map(r => h('button', {
           class: 'small' + (ui.bankGet === r ? ' active' : ''),
           disabled: g.bank[r] < 1 || r === ui.bankGive,
           onclick: () => { ui.bankGet = r; rerender(); },
-        }, `1 ${RES_ICON[r]}`))),
+        }, '1', chip(r)))),
         h('div', { class: 'actions' }, h('button', {
           class: 'primary', disabled: !bankOk,
           onclick: () => { send('tradeBank', { give: ui.bankGive, get: ui.bankGet }); ui.bankGive = ui.bankGet = null; },
@@ -715,9 +758,9 @@
       h('div', { class: 'trade-section' },
         h('div', { class: 'panel-title' }, 'With players'),
         h('div', { class: 'trade-cols' },
-          h('div', {}, h('div', { class: 'muted' }, 'You give'),
+          h('div', {}, h('div', { class: 'sub-label' }, 'You give'),
             h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(give, r, me.res[r], rerender)))),
-          h('div', {}, h('div', { class: 'muted' }, 'You want'),
+          h('div', {}, h('div', { class: 'sub-label' }, 'You want'),
             h('div', { class: 'steppers' }, RESOURCES.map(r => stepper(get, r, 9, rerender))))),
         h('div', { class: 'actions' }, h('button', {
           class: 'primary', disabled: !offerOk,
@@ -732,9 +775,10 @@
     const ranked = g.players.map((p, i) => ({ ...p, i })).sort((a, b) => b.vp - a.vp);
     const winner = g.players[g.winner];
     return [
-      h('h2', {}, me && me.index === g.winner ? '🏆 You win!' : `🏆 ${winner.name} wins!`),
-      h('ol', { class: 'results' }, ranked.map(p => h('li', { style: `--pc:${p.color}` },
-        h('span', { class: 'swatch' }), h('span', { class: 'pname' }, p.name), h('span', { class: 'vp' }, `${p.vp} VP`)))),
+      h('h2', {}, me && me.index === g.winner ? 'Victory is yours' : `${winner.name} wins`),
+      h('p', {}, 'Final standings'),
+      h('ol', { class: 'results' }, ranked.map(p => h('li', {},
+        settlementIcon(p.color), h('span', { class: 'pname' }, p.name), h('span', { class: 'vp' }, p.vp)))),
       h('div', { class: 'actions' },
         h('button', { onclick: () => { ui.hideResults = true; render(); } }, 'View board'),
         v.you === 0

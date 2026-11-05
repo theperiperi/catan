@@ -4,13 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catan</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌾</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 2 2'><polygon fill='%23a4432a' points='0,-1 .866,-.5 .866,.5 0,1 -.866,.5 -.866,-.5'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@700;800&family=Alegreya:ital,wght@0,400;0,600;1,400&family=Alegreya+Sans:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Resource glyphs, drawn on a 24×24 grid and reused everywhere via <use>. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="g-wood" viewBox="0 0 24 24">
+      <path d="M12 1.5 18.2 9.4h-3l4.6 5.8h-3.6l4.6 6.1H13.6V23h-3.2v-1.7H3.2l4.6-6.1H4.2l4.6-5.8h-3z"/>
+    </symbol>
+    <symbol id="g-brick" viewBox="0 0 24 24">
+      <rect x="1.5" y="3.5" width="10" height="4.8" rx=".7"/><rect x="12.5" y="3.5" width="10" height="4.8" rx=".7"/>
+      <rect x="1.5" y="9.6" width="4.4" height="4.8" rx=".7"/><rect x="7" y="9.6" width="10" height="4.8" rx=".7"/><rect x="18.1" y="9.6" width="4.4" height="4.8" rx=".7"/>
+      <rect x="1.5" y="15.7" width="10" height="4.8" rx=".7"/><rect x="12.5" y="15.7" width="10" height="4.8" rx=".7"/>
+    </symbol>
+    <symbol id="g-sheep" viewBox="0 0 24 24">
+      <circle cx="7" cy="12" r="4.2"/><circle cx="11.5" cy="9.2" r="4.4"/><circle cx="15.5" cy="11.6" r="4.2"/>
+      <circle cx="9.5" cy="14.6" r="3.8"/><circle cx="14" cy="15" r="3.6"/>
+      <ellipse cx="20.2" cy="9.6" rx="2.6" ry="3.3"/>
+      <rect x="8" y="16.5" width="1.9" height="5.5" rx=".8"/><rect x="14.2" y="16.5" width="1.9" height="5.5" rx=".8"/>
+    </symbol>
+    <symbol id="g-wheat" viewBox="0 0 24 24">
+      <rect x="11.3" y="7" width="1.4" height="16" rx=".7"/>
+      <ellipse cx="12" cy="3.9" rx="1.9" ry="3"/>
+      <ellipse cx="9.4" cy="8" rx="1.8" ry="3.2" transform="rotate(-32 9.4 8)"/><ellipse cx="14.6" cy="8" rx="1.8" ry="3.2" transform="rotate(32 14.6 8)"/>
+      <ellipse cx="9.4" cy="12.6" rx="1.8" ry="3.2" transform="rotate(-32 9.4 12.6)"/><ellipse cx="14.6" cy="12.6" rx="1.8" ry="3.2" transform="rotate(32 14.6 12.6)"/>
+      <ellipse cx="9.6" cy="17.1" rx="1.7" ry="3" transform="rotate(-32 9.6 17.1)"/><ellipse cx="14.4" cy="17.1" rx="1.7" ry="3" transform="rotate(32 14.4 17.1)"/>
+    </symbol>
+    <symbol id="g-ore" viewBox="0 0 24 24">
+      <path d="M1.5 21 8.4 9.2l2.9 4.1L15.6 4 22.5 21z"/>
+      <path d="M15.6 4 13.9 10.6l1.9-1.3 1.7 2.4z" fill-opacity=".35" style="fill:var(--glyph-shade,#000)"/>
+    </symbol>
+  </svg>
+
   <section id="home" class="screen landing" hidden>
     <div class="parchment home-card">
       <svg class="logo" viewBox="-3.2 -3.2 6.4 6.4" aria-hidden="true">
@@ -68,6 +97,7 @@
       <div id="conn" hidden>Reconnecting…</div>
     </div>
     <aside id="side">
+      <header class="game-head"><span class="wordmark">Catan</span><span id="game-code" class="muted"></span></header>
       <div id="players"></div>
       <div id="turn" class="panel"></div>
       <div id="trade-panel" class="panel" hidden></div>
