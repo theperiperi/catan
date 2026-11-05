@@ -190,7 +190,11 @@
   }
 
   function renderLobby(v) {
-    $('#room-code').textContent = v.code;
+    const codeEl = $('#room-code');
+    if (codeEl.dataset.code !== v.code) {
+      codeEl.dataset.code = v.code;
+      codeEl.replaceChildren(...[...v.code].map(ch => h('span', { class: 'code-token' }, ch)));
+    }
     const link = shareLink(v.code);
     const input = $('#share-link');
     if (input.value !== link) input.value = link;
@@ -198,13 +202,19 @@
       ? 'This link works for friends on the same Wi-Fi. For friends elsewhere, see the README.'
       : 'Send this link to your friends.';
 
-    $('#members').replaceChildren(...v.members.map((m, i) => h('li', { style: `--pc:${m.color}` },
-      h('span', { class: 'swatch' }),
+    $('#member-count').textContent = `${v.members.length} of ${C.MAX_PLAYERS}`;
+    const rows = v.members.map((m, i) => h('li', {},
+      settlementIcon(m.color),
       h('span', { class: 'member-name' }, m.name),
       i === v.you && h('span', { class: 'tag' }, 'you'),
       i === 0 && h('span', { class: 'tag' }, 'host'),
-      h('span', { class: m.connected ? 'dot on' : 'dot', title: m.connected ? 'online' : 'offline' }),
-    )));
+      h('span', { class: 'presence' + (m.connected ? ' on' : '') }, m.connected ? 'here' : 'away'),
+    ));
+    if (v.members.length < C.MAX_PLAYERS) {
+      rows.push(h('li', { class: 'open-seat' },
+        `${C.MAX_PLAYERS - v.members.length} seat${C.MAX_PLAYERS - v.members.length > 1 ? 's' : ''} open`));
+    }
+    $('#members').replaceChildren(...rows);
 
     const actions = $('#lobby-actions');
     const n = v.members.length;
@@ -218,11 +228,17 @@
     }
   }
 
+  function settlementIcon(color) {
+    const icon = svg('svg', { viewBox: '-11 -13 22 23', class: 'settlement-icon', 'aria-hidden': 'true' });
+    svg('polygon', { points: '-9,8 9,8 9,-3 0,-11 -9,-3', fill: color }, icon);
+    return icon;
+  }
+
   function renderChat(v) {
     document.querySelectorAll('.chat-list').forEach(list => {
       const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 30;
       list.replaceChildren(...v.chat.map(m => h('div', { class: 'chat-line' },
-        h('b', { style: `color:${chatColor(v, m.pi)}` }, m.name + ': '), m.text)));
+        h('b', { style: `--pc:${chatColor(v, m.pi)}` }, m.name + ': '), m.text)));
       if (atBottom) list.scrollTop = list.scrollHeight;
     });
   }

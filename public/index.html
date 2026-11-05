@@ -5,39 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catan</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌾</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@700;800&family=Alegreya:ital,wght@0,400;0,600;1,400&family=Alegreya+Sans:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <section id="home" class="screen" hidden>
-    <div class="card home-card">
+  <section id="home" class="screen landing" hidden>
+    <div class="parchment home-card">
+      <svg class="logo" viewBox="-3.2 -3.2 6.4 6.4" aria-hidden="true">
+        <polygon class="logo-hex" fill="#e2cd97" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#3f7a3a" transform="translate(1.732 0)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#b5532f" transform="translate(0.866 1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#93b95a" transform="translate(-0.866 1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#dfb03c" transform="translate(-1.732 0)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#7d8591" transform="translate(-0.866 -1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+        <polygon class="logo-hex" fill="#2f6a35" transform="translate(0.866 -1.5)" points="0,-1 0.866,-0.5 0.866,0.5 0,1 -0.866,0.5 -0.866,-0.5"/>
+      </svg>
       <h1>Catan</h1>
-      <p class="sub">Play online with 2–6 friends, each on your own device.</p>
-      <label class="field">Your name
-        <input id="name" maxlength="20" placeholder="Your name" autocomplete="nickname">
+      <p class="tagline">Gather, build and trade your way to ten points.</p>
+      <p class="meta">2–6 players · everyone on their own device</p>
+
+      <label class="field">
+        <span class="field-label">Your name</span>
+        <input id="name" maxlength="20" placeholder="What should the table call you?" autocomplete="nickname">
       </label>
-      <button id="create" class="primary big">Create a game</button>
-      <div class="divider"><span>or join one</span></div>
+      <button id="create" class="primary big">Found a new game</button>
+      <div class="divider"><span>or join a friend’s game</span></div>
       <form id="join-form" class="join-row">
-        <input id="join-code" maxlength="4" placeholder="CODE" autocapitalize="characters" spellcheck="false">
+        <input id="join-code" maxlength="4" placeholder="CODE" autocapitalize="characters" spellcheck="false" aria-label="Game code">
         <button type="submit">Join</button>
       </form>
     </div>
   </section>
 
-  <section id="lobby" class="screen" hidden>
-    <div class="card lobby-card">
-      <div class="label">Game code</div>
-      <div id="room-code" class="room-code"></div>
+  <section id="lobby" class="screen landing" hidden>
+    <div class="parchment lobby-card">
+      <div class="section-title">Game code</div>
+      <div id="room-code" class="room-code" aria-live="polite"></div>
       <div class="share">
-        <input id="share-link" readonly>
+        <input id="share-link" readonly aria-label="Invite link">
         <button id="copy-link">Copy link</button>
       </div>
       <p id="share-hint" class="hint"></p>
+
+      <div class="section-title">Players <span id="member-count"></span></div>
       <ul id="members"></ul>
       <div id="lobby-actions"></div>
+
+      <div class="section-title">Table talk</div>
       <div class="chat">
         <div class="chat-list"></div>
-        <form class="chat-form"><input maxlength="300" placeholder="Say something…"><button>Send</button></form>
+        <form class="chat-form"><input maxlength="300" placeholder="Say hello…"><button>Send</button></form>
       </div>
     </div>
   </section>
