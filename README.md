@@ -1,10 +1,12 @@
 # Catan
 
 An online Catan clone for 2–6 friends, each playing on their own device. It needs only Node.js 18 or newer and has no dependencies.
+<img width="1177" height="780" alt="Screenshot 2026-11-05 at 11 29 11 PM" src="https://github.com/user-attachments/assets/fe0922cb-e707-4b34-8502-831f95417480" />
 
 ## Play
 
 ```sh
+
 npm start          # or: node server.js   (PORT=8080 node server.js to change port)
 ```
 
